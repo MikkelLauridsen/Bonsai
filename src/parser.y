@@ -1,18 +1,16 @@
 {
 
-    {-# OPTIONS -w #-}
-    module Parser 
-    ( parseBonsai
-    ) where
+{-# OPTIONS -w #-}
+module Parser (parseBonsai) where
 
-    import Lexer
+import Lexer
 
 }
 
 %name parse
 %tokentype { Token }
 %monad { Alex }
-%lexer { lexwrap } { Token _ TokenEOF }
+%lexer { lexwrap } { Token _ EOFToken }
 %error { happyError }
 
 %token
@@ -126,6 +124,7 @@ Pattern     : Struc_pat                              { }
             | type_id                                { }
 
 Struc_pat   : '(' Pat_body ')'                       { }
+            | '['']'                                 { }
             | '[' Pat_body ']'                       { }
             | '(' Pattern three_op var_id ')'        { }
 
@@ -179,7 +178,7 @@ lexwrap = (alexMonadScan' >>=)
 happyError :: Token -> Alex a
 happyError (Token p t) = alexError' p ("Parse error at token '" ++ terminalString t ++ "'")
 
-parseBonsai :: FilePath -> String -> Either String Prog
+parseBonsai :: FilePath -> String -> Either String ()
 parseBonsai = runAlex' parse
 
 }
