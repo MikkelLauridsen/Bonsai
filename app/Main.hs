@@ -1,11 +1,15 @@
-data MyType = A Int | B MyType deriving (Show)
+module Main(main)
+    (
+    ) where
 
-getEnd (A v) = v
-getEnd (B t) = getEnd (t)
+import System.Environment (getArgs)
+import Parser (parseBonsai)
 
-
-addList l = foldl (+) 0 l
-
-uglyfactorial x = foldl (*) 1 [1..x]
-
-main = print (getEnd (B (B (A 10))))
+main :: IO ()
+main = do
+    args <- getArgs
+    result <- case args of
+                []     -> fmap (parseBonsai "<stdin>") getContents
+                [file] -> fmap (parseBonsai file) (readFile file)
+                _      -> error "Expected a single file." 
+    either putStrLn (print . eval []) result

@@ -4,7 +4,7 @@
     ( Token(..)
     , AlexPosn(..)
     , Terminal(..)
-    , printTerminal
+    , terminalString
     , Alex(..)
     , runAlex'
     , alexMonadScan'
@@ -33,7 +33,6 @@ tokens :-
     match                           { \s -> MatchToken}
     case                            { \s -> CaseToken}
     type                            { \s -> TypeToken}
-    otherwise                       { \s -> OtherwiseToken}
     true                            { \s -> TrueToken}
     false                           { \s -> FalseToken}
     \=\>                            { \s -> FollowsToken}
@@ -54,6 +53,7 @@ tokens :-
     \)                              { \s -> ParenCloseToken}
     \-\>                            { \s -> EntailsToken}
     \,                              { \s -> CommaToken}
+    \?                              { \s -> WildcardToken}
     \+                              { \s -> LevelOneOpToken s} 
     \-                              { \s -> LevelOneOpToken s}
     \+\+                            { \s -> LevelOneOpToken s}
@@ -81,7 +81,6 @@ data Terminal =
         MatchToken               |
         CaseToken                |
         TypeToken                |
-        OtherwiseToken           |
         TrueToken                |
         FalseToken               |
         FollowsToken             |
@@ -102,6 +101,7 @@ data Terminal =
         ParenCloseToken          |
         EntailsToken             |
         CommaToken               |
+        WildcardToken            |
         LevelOneOpToken String   |
         LevelTwoOpToken String   |
         LevelThreeOpToken String |
@@ -120,39 +120,39 @@ getFilePath = liftM path alexGetUserState
 setFilePath :: FilePath -> Alex ()
 setFilePath = alexSetUserState . AlexUserState
 
-printTerminal :: Terminal -> String
-printTerminal VarToken                   = "var"
-printTerminal LetToken                   = "let"
-printTerminal InToken                    = "in"
-printTerminal MatchToken                 = "match"
-printTerminal CaseToken                  = "case"
-printTerminal TypeToken                  = "type"
-printTerminal OtherwiseToken             = "otherwise"
-printTerminal TrueToken                  = "true"
-printTerminal FalseToken                 = "false"
-printTerminal FollowsToken               = "=>"
-printTerminal (IntToken int)             = show int
-printTerminal (FloatToken float)         = show float
-printTerminal (CharToken char)           = show char
-printTerminal (StringToken string)       = show string
-printTerminal (TypeIdToken string)       = show string
-printTerminal (VarIdToken string)        = show string
-printTerminal GuardToken                 = "|"
-printTerminal DeclareToken               = "="
-printTerminal CurlyOpenToken             = "{"
-printTerminal CurlyCloseToken            = "}"
-printTerminal AnnotateToken              = "::"
-printTerminal SquareOpenToken            = "["
-printTerminal SquareCloseToken           = "]"
-printTerminal ParenOpenToken             = "("
-printTerminal ParenCloseToken            = ")"
-printTerminal EntailsToken               = "->"
-printTerminal CommaToken                 = ","
-printTerminal (LevelOneOpToken string)   = show string
-printTerminal (LevelTwoOpToken string)   = show string
-printTerminal (LevelThreeOpToken string) = show string
-printTerminal (UnaryOpToken string)      = show string
-printTerminal EOFToken                   = "$"
+terminalString :: Terminal -> String
+terminalString VarToken                   = "var"
+terminalString LetToken                   = "let"
+terminalString InToken                    = "in"
+terminalString MatchToken                 = "match"
+terminalString CaseToken                  = "case"
+terminalString TypeToken                  = "type"
+terminalString TrueToken                  = "true"
+terminalString FalseToken                 = "false"
+terminalString FollowsToken               = "=>"
+terminalString (IntToken int)             = show int
+terminalString (FloatToken float)         = show float
+terminalString (CharToken char)           = show char
+terminalString (StringToken string)       = show string
+terminalString (TypeIdToken string)       = show string
+terminalString (VarIdToken string)        = show string
+terminalString GuardToken                 = "|"
+terminalString DeclareToken               = "="
+terminalString CurlyOpenToken             = "{"
+terminalString CurlyCloseToken            = "}"
+terminalString AnnotateToken              = "::"
+terminalString SquareOpenToken            = "["
+terminalString SquareCloseToken           = "]"
+terminalString ParenOpenToken             = "("
+terminalString ParenCloseToken            = ")"
+terminalString EntailsToken               = "->"
+terminalString CommaToken                 = ","
+terminalString WildcardToken              = "?"
+terminalString (LevelOneOpToken string)   = show string
+terminalString (LevelTwoOpToken string)   = show string
+terminalString (LevelThreeOpToken string) = show string
+terminalString (UnaryOpToken string)      = show string
+terminalString EOFToken                   = "$"
 
 alexEOF :: Alex Token
 alexEOF = do
