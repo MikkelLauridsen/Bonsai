@@ -30,6 +30,8 @@ library
       Lib
       Lexer
       Parser
+      Ast
+      Actions
   other-modules:
       Paths_p4
   hs-source-dirs:

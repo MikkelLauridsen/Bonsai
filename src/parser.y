@@ -67,7 +67,7 @@ Cons        : '|' type_id Comp_type                  { }
 
 Comp_type   : type_id                                { }
             | '[' Comp_type ']'                      { }
-            | '(' Comp_type Comp_rep ')'             { }
+            | '(' Comp_rep ')'                       { }
             | '(' Comp_type '->' Comp_type ')'       { }
 
 Comp_rep    : Comp_rep ',' Comp_type                 { }

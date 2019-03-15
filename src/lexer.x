@@ -40,10 +40,10 @@ tokens :-
     \=\>                            { lex' FollowsToken}
     $digit+                         { lex (IntToken . read)}
     $digit+\.$digit+                { lex (FloatToken . read)}
-    \'.\'                           { lex (CharToken . read) }
-    \"$stringb*\"                   { lex StringToken }
-    $upper [$alpha $digit \_ \']*   { lex TypeIdToken }
-    $lower [$alpha $digit \_ \']*   { lex VarIdToken }
+    \'.\'                           { lex (CharToken . read)}
+    \"$stringb*\"                   { lex (StringToken . tail . init)}
+    $upper [$alpha $digit \_ \']*   { lex TypeIdToken}
+    $lower [$alpha $digit \_ \']*   { lex VarIdToken}
     \|                              { lex' GuardToken}
     \=                              { lex' DeclareToken}
     \{                              { lex' CurlyOpenToken}
@@ -138,9 +138,9 @@ terminalString FollowsToken               = "=>"
 terminalString (IntToken int)             = show int
 terminalString (FloatToken float)         = show float
 terminalString (CharToken char)           = show char
-terminalString (StringToken string)       = show string
-terminalString (TypeIdToken string)       = show string
-terminalString (VarIdToken string)        = show string
+terminalString (StringToken string)       = string
+terminalString (TypeIdToken string)       = string
+terminalString (VarIdToken string)        = string
 terminalString GuardToken                 = "|"
 terminalString DeclareToken               = "="
 terminalString CurlyOpenToken             = "{"
@@ -153,10 +153,10 @@ terminalString ParenCloseToken            = ")"
 terminalString EntailsToken               = "->"
 terminalString CommaToken                 = ","
 terminalString WildcardToken              = "?"
-terminalString (LevelOneOpToken string)   = show string
-terminalString (LevelTwoOpToken string)   = show string
-terminalString (LevelThreeOpToken string) = show string
-terminalString (UnaryOpToken string)      = show string
+terminalString (LevelOneOpToken string)   = string
+terminalString (LevelTwoOpToken string)   = string
+terminalString (LevelThreeOpToken string) = string
+terminalString (UnaryOpToken string)      = string
 terminalString EOFToken                   = "$"
 
 alexEOF :: Alex Token
