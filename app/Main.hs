@@ -9,10 +9,6 @@ main = do
     result <- case args of
                 []     -> fmap (parseBonsai "<stdin>") getContents
                 [file] -> fmap (parseBonsai file) (readFile file)
-                _      -> error "Expected a single file." 
-    either putStrLn (print . eval []) result
+                _      -> error "expected a single file." 
+    either putStrLn print result
 
---junk der skal ud
-eval :: [(String,Int)] -> () -> Int
-eval p () = 1
-eval p () = 0

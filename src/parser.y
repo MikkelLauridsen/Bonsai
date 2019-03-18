@@ -4,6 +4,8 @@
 module Parser (parseBonsai) where
 
 import Lexer
+import Actions
+import Ast
 
 }
 
@@ -20,8 +22,7 @@ import Lexer
     match     { Token _ MatchToken }
     case      { Token _ CaseToken }
     type      { Token _ TypeToken }
-    true      { Token _ TrueToken }
-    false     { Token _ FalseToken }
+    bool      { Token _ (BoolToken $$) }
     '=>'      { Token _ FollowsToken }
     int       { Token _ (IntToken $$) }
     float     { Token _ (FloatToken $$) }
@@ -50,123 +51,125 @@ import Lexer
 
 -- Start grammar
 
-Prog    : Type_decs Var_decs                         { }
+Prog    : Type_decs Var_decs                         { ProgAST $1 $2 }
 
 -- Types
 
-Type_decs   :                                        { }
-            | Type_decs Type_dec                     { }
+Type_decs   :                                        { [] }
+            | Type_decs Type_dec                     { $1 ++ [$2] }
 
-Type_dec    : type type_id '=' '{' Cons_list '}'     { }
+Type_dec    : type type_id '=' '{' Cons_list '}'     { TypeDclAST (TypeId $2) $5 }
 
-Cons_list   : Cons_list Cons                         { }
-            | Cons                                   { }
+Cons_list   : Cons_list Cons                         { $1 ++ [$2] }
+            | Cons                                   { [$1] }
 
-Cons        : '|' type_id Comp_type                  { }
-            | '|' type_id                            { }
+Cons        : '|' type_id Comp_type                  { DoubleConsAST (TypeId $2) $3 }
+            | '|' type_id                            { SingleConsAST (TypeId $2) }
 
-Comp_type   : type_id                                { }
-            | '[' Comp_type ']'                      { }
-            | '(' Comp_rep ')'                       { }
-            | '(' Comp_type '->' Comp_type ')'       { }
+Comp_type   : type_id                                { CompSimpleAST (TypeId $1) }
+            | '[' Comp_type ']'                      { CompListAST $2 }
+            | '(' Comp_rep ')'                       { CompTupleAST $2 }
+            | '(' Comp_type '->' Comp_type ')'       { CompFuncAST $2 $4 }
 
-Comp_rep    : Comp_rep ',' Comp_type                 { }
-            | Comp_type                              { }
+Comp_rep    : Comp_rep ',' Comp_type                 { $1 ++ [$3] }
+            | Comp_type                              { [$1] }
 
-Type_spec   : '::' Comp_type                         { }
+Type_spec   : '::' Comp_type                         { $2 }
 
 -- Variable declarations
 
-Var_decs    :                                        { }
-            | Var_decs Var_dec                       { }
+Var_decs    :                                        { [] }
+            | Var_decs Var_dec                       { $1 ++ [$2] }
 
-Var_dec     : var Typed_var '=' Expr                 { }
+Var_dec     : var Typed_var '=' Expr                 { VarDclAST $2 $4 }
 
 -- Control structures
 
-Match       : match Expr '{' Match_body '}'          { }
+Match       : match Expr '{' Match_body '}'          { MatchExprAST $2 $4 }
 
-Match_body  : Match_body '|' Pattern '->' Expr       { }
-            | '|' Pattern '->' Expr                  { }
+Match_body  : Match_body '|' Pattern '->' Expr       { $1 ++ [($3, $5)] }
+            | '|' Pattern '->' Expr                  { [($2, $4)] }
 
-Let_in      : let Vars '=' Expr in '(' Expr ')'      { }
+Let_in      : let Vars '=' Expr in '(' Expr ')'      { let_in $2 $4 $7 }
 
-Case        : case '{' Case_body '}'                 { }
+Case        : case '{' Case_body '}'                 { CaseExprAST $3 }
 
-Case_body   : Case_body '|' Expr '->' Expr           { }
-            | '|' Expr '->' Expr                     { }
+Case_body   : Case_body '|' Pred '->' Expr           { $1 ++ [($3, $5)] }
+            | '|' Pred '->' Expr                     { [($2, $4)] }
+
+Pred        : Expr                                   { PredExprAST $1 }
+            | '?'                                    { PredWildAST }
 
 -- Utilities
 
-Vars        : Typed_var                              { }
-            | '(' Vars_body ')'                      { }
+Vars        : Typed_var                              { [$1] }
+            | '(' Vars_body ')'                      { $2 }
 
-Vars_body   : Vars_body ',' Typed_var                { }
-            | Typed_var                              { }
+Vars_body   : Vars_body ',' Typed_var                { $1 ++ [$3] }
+            | Typed_var                              { [$1] }
 
-Typed_var   : var_id                                 { }
-            | var_id Type_spec                       { }
+Typed_var   : var_id                                 { UntypedVarAST (VarId $1) }
+            | var_id Type_spec                       { TypedVarAST (VarId $1) $2 }
 
-Literal     : string                                 { }
-            | char                                   { }
-            | int                                    { }
-            | float                                  { }
-            | true                                   { }
-            | false                                  { }
+Literal     : string                                 { StringConstAST $1 }
+            | char                                   { CharConstAST $1 }
+            | int                                    { IntConstAST $1 }
+            | float                                  { FloatConstAST $1 }
+            | bool                                   { BoolConstAST $1 }
 
 -- Patterns
 
-Pattern     : Struc_pat                              { }
-            | Literal                                { }
-            | var_id                                 { }
-            | '?'                                    { }
-            | type_id Pattern                        { }
-            | type_id                                { }
+Pattern     : Struc_pat                              { $1 }
+            | Literal                                { ConstPatternAST $1 }
+            | var_id                                 { VarPatternAST (VarId $1) }
+            | '?'                                    { WildPatternAST }
+            | type_id Pattern                        { TypeConsPatternAST (TypeId $1) $2 }
+            | type_id                                { TypePatternAST (TypeId $1) }
 
-Struc_pat   : '(' Pat_body ')'                       { }
-            | '['']'                                 { }
-            | '[' Pat_body ']'                       { }
-            | '(' Pattern three_op var_id ')'        { }
+Struc_pat   : '(' Pat_body ')'                       { TuplePatternAST $2 }
+            | '['']'                                 { ListPatternAST [] }
+            | '[' Pat_body ']'                       { ListPatternAST $2 }
+            | '(' Pattern three_op var_id ')'        { decomp_pat $2 $3 (VarId $4) }
 
-Pat_body    : Pat_body ',' Pattern                   { }
-            | Pattern                                { }
+Pat_body    : Pat_body ',' Pattern                   { $1 ++ [$3] }
+            | Pattern                                { [$1] }
 
 -- Expr
 
-Expr        : Expr one_op Two_infix                  { }
-            | Two_infix                              { }
+Expr        : Expr one_op Two_infix                  { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_one_op $2)) $1) $3 }
+            | Two_infix                              { $1 }
 
-Two_infix   : Two_infix two_op Three_infix           { }
-            | Three_infix                            { }
+Two_infix   : Two_infix two_op Three_infix           { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_two_op $2)) $1) $3 }
+            | Three_infix                            { $1 }
 
-Three_infix : Three_infix three_op Unary_infix       { }
-            | Unary_infix                            { }
+Three_infix : Three_infix three_op Unary_infix       { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_three_op $2)) $1) $3 }
+            | Unary_infix                            { $1 }
 
-Unary_infix : unary_op Left_expr                     { }
-            | Left_expr                              { }
+Unary_infix : unary_op Left_expr                     { FunAppExprAST (ConstExprAST (convert_unary_op $1)) $2 }
+            | Left_expr                              { $1 }
 
-Left_expr   : Match                                  { }
-            | Let_in                                 { }
-            | Case                                   { }
-            | Func_expr                              { }
+Left_expr   : Match                                  { $1 }
+            | Let_in                                 { $1 }
+            | Case                                   { $1 }
+            | Func_expr                              { func_left_expr $1 }
 
-Func_expr   : Func_expr Lit_expr                     { }
-            | Lit_expr                               { }
+Func_expr   : Func_expr Lit_expr                     { $1 ++ [$2] }
+            | Lit_expr                               { [$1] }
 
-Lit_expr    : Lambda                                 { }
-            | Literal                                { }
-            | type_id                                { }
-            | var_id                                 { }
-            | '(' Tuple_body ')'                     { }
-            | '[' List_body ']'                      { }
+Lit_expr    : Lambda                                 { $1 }
+            | Literal                                { ConstExprAST $1 }
+            | type_id                                { TypeExprAST (TypeId $1) }
+            | var_id                                 { VarExprAST (VarId $1) }
+            | '(' Tuple_body ')'                     { TupleExprAST $2 }
+            | '[' List_body ']'                      { ListExprAST $2 }
 
-Lambda      : Typed_var '=>' '{' Expr '}'            { }
+Lambda      : Typed_var '=>' '{' Expr '}'            { LambdaExprAST $1 $4 }
 
-Tuple_body  : Tuple_body ',' Expr                    { }
-            | Expr                                   { }
+Tuple_body  : Tuple_body ',' Expr                    { $1 ++ [$3] }
+            | Expr                                   { [$1] }
 
-List_body   :                                        { }
-            | Tuple_body                             { }
+List_body   :                                        { [] }
+            | Tuple_body                             { $1 }
 
 --end grammar
 
@@ -178,7 +181,7 @@ lexwrap = (alexMonadScan' >>=)
 happyError :: Token -> Alex a
 happyError (Token p t) = alexError' p ("Parse error at token '" ++ terminalString t ++ "'")
 
-parseBonsai :: FilePath -> String -> Either String ()
+parseBonsai :: FilePath -> String -> Either String ProgAST
 parseBonsai = runAlex' parse
 
 }

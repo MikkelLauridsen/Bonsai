@@ -1,65 +1,15 @@
 module Actions
-    (
+    ( let_in
+    , decomp_pat
+    , func_left_expr
+    , convert_one_op
+    , convert_two_op
+    , convert_three_op
+    , convert_unary_op
     ) where
 
 import Ast
-
---rule Prog: 1
-prog :: [TypeDclAST] -> [VarDclAST] -> ProgAST
-prog typeDecs varDecs = ProgAST typeDecs varDecs
-
---rule Type_decs: 1
-eps_type_decs :: [TypeDclAST]
-eps_type_decs = []
-
---rule Type_decs: 2
-type_decs :: [TypeDclAST] -> TypeDclAST -> [TypeDclAST]
-type_decs decs dec = decs ++ [dec]
-
---rule Type_dec: 1
-type_dec :: TypeId -> [ConsAST] -> TypeDclAST
-type_dec type_id cons_list = TypeDclAST type_id cons_list 
-
---rule Cons_list: 1
-cons_list :: [ConsAST] -> ConsAST -> [ConsAST]
-cons_list cons_list cons = cons_list ++ [cons]
-
---rule Cons_list: 2
-simple_cons_list :: ConsAST -> [ConsAST]
-simple_cons_list cons = [cons]
-
---rule Cons: 1
-comp_cons :: TypeId -> CompTypeAST -> ConsAST
-comp_cons type_id comp_type = DoubleConsAST type_id comp_type
-
---rule Cons: 2
-simple_cons :: TypeId -> ConsAST
-simple_cons type_id = SingleConsAST type_id
-
-
---rule Var_decs: 1
-eps_var_decs :: [VarDclAST]
-eps_var_decs = []
-
---rule Var_decs: 2
-var_decs :: [VarDclAST] -> VarDclAST -> [VarDclAST]
-var_decs decs dec = decs ++ [dec]
-
---rule Var_dec: 1
-var_dec :: TypeVarAST -> ExprAST -> VarDclAST
-var_dec var expr = VarDclAST var expr
-
---rule Match: 1
-match :: ExprAST -> [(PatternAST, ExprAST)] -> ExprAST
-match expr body = MatchExprAST expr body
-
---rule Match_body: 1
-match_body :: [(PatternAST, ExprAST)] -> PatternAST -> ExprAST -> [(PatternAST, ExprAST)]
-match_body list pattern expr = list ++ [(pattern, expr)]
-
---rule Match_body: 2
-single_match_body :: PatternAST -> ExprAST -> [(PatternAST, ExprAST)]
-single_match_body pattern expr = [(pattern, expr)]
+import Lexer
 
 --rule Let_in: 1
 let_in :: [TypeVarAST] -> ExprAST -> ExprAST -> ExprAST
@@ -70,17 +20,45 @@ tuple_to_pattern :: [TypeVarAST] -> PatternAST
 tuple_to_pattern vars = TuplePatternAST (map type_var_to_pat vars) 
 
 type_var_to_pat :: TypeVarAST -> PatternAST
-type_var_to_pat (UnTypedVarAST name) = VarPatternAST name
+type_var_to_pat (UntypedVarAST name) = VarPatternAST name
 type_var_to_pat (TypedVarAST name _) = VarPatternAST name
 
---rule Case: 1
-case_expr :: [(PredAST, ExprAST)] -> ExprAST
-case_expr body = CaseExprAST body
+--rule Struc_pat: 4
+decomp_pat :: PatternAST -> String -> VarId -> PatternAST
+decomp_pat pat op var = case op of
+                          ":" -> DecompPatternAST pat var
+                          _   -> error "only the decomposition operator may be used in a pattern."
 
---rule Case_body: 1
-case_body :: [(PredAST, ExprAST)] -> PredAST -> ExprAST -> [(PredAST, ExprAST)]
-case_body body pred' expr = body ++ [(pred', expr)]
+--rule Left_expr: 4
+func_left_expr :: [ExprAST] -> ExprAST
+func_left_expr []     = error "Cannot apply a function to zero arguments."
+func_left_expr [expr] = expr
+func_left_expr (x:xs) = FunAppExprAST x (func_left_expr xs)
 
---rule Case_body: 2
-single_case_body :: PredAST -> ExprAST -> [(PredAST, ExprAST)]
-single_case_body pred' expr = [(pred', expr)]
+convert_one_op :: String -> ConstAST
+convert_one_op "+"  = PlusConstAST
+convert_one_op "-"  = MinusConstAST
+convert_one_op "++" = ConcatenateConstAST
+convert_one_op "&&" = AndConstAST
+convert_one_op "||" = OrConstAST
+convert_one_op _    = error "undefined operator."
+
+convert_two_op :: String -> ConstAST
+convert_two_op "*"  = TimesConstAST
+convert_two_op "/"  = DivideConstAST
+convert_two_op "%"  = ModuloConstAST
+convert_two_op "==" = EqualsConstAST
+convert_two_op _    = error "undefined operator."
+
+convert_three_op :: String -> ConstAST
+convert_three_op "<"  = LessConstAST
+convert_three_op ">"  = GreaterConstAST
+convert_three_op "<=" = LessOrEqualConstAST
+convert_three_op ">=" = GreaterOrEqualConstAST
+convert_three_op ":"  = AppenConstAST
+convert_three_op _    = error "undefined operator."
+
+convert_unary_op :: String -> ConstAST
+convert_unary_op "!" = NotConstAST
+convert_unary_op "~" = UnaryMinusConstAST
+convert_unary_op _   = error "undefined operator."

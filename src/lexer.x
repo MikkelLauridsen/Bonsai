@@ -35,8 +35,8 @@ tokens :-
     match                           { lex' MatchToken}
     case                            { lex' CaseToken}
     type                            { lex' TypeToken}
-    true                            { lex' TrueToken}
-    false                           { lex' FalseToken}
+    true                            { lex' (BoolToken True)}
+    false                           { lex' (BoolToken False)}
     \=\>                            { lex' FollowsToken}
     $digit+                         { lex (IntToken . read)}
     $digit+\.$digit+                { lex (FloatToken . read)}
@@ -65,7 +65,6 @@ tokens :-
     \/                              { lex LevelTwoOpToken}
     \%                              { lex LevelTwoOpToken}
     \=\=                            { lex LevelTwoOpToken}
-    \!\=                            { lex LevelTwoOpToken}
     \<                              { lex LevelThreeOpToken} 
     \>                              { lex LevelThreeOpToken}
     \<\=                            { lex LevelThreeOpToken}
@@ -84,8 +83,7 @@ data Terminal =
         MatchToken               |
         CaseToken                |
         TypeToken                |
-        TrueToken                |
-        FalseToken               |
+        BoolToken Bool           |
         FollowsToken             |
         IntToken Int             |
         FloatToken Float         |
@@ -132,8 +130,7 @@ terminalString InToken                    = "in"
 terminalString MatchToken                 = "match"
 terminalString CaseToken                  = "case"
 terminalString TypeToken                  = "type"
-terminalString TrueToken                  = "true"
-terminalString FalseToken                 = "false"
+terminalString (BoolToken bool)           = show bool
 terminalString FollowsToken               = "=>"
 terminalString (IntToken int)             = show int
 terminalString (FloatToken float)         = show float

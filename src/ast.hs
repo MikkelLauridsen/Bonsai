@@ -24,7 +24,7 @@ data CompTypeAST = CompSimpleAST TypeId
                  | CompFuncAST CompTypeAST CompTypeAST
                  deriving Show
 
-data TypeVarAST = UnTypedVarAST VarId
+data TypeVarAST = UntypedVarAST VarId
                 | TypedVarAST VarId CompTypeAST
                 deriving Show
 
@@ -82,4 +82,6 @@ data ConstAST = IntConstAST Int
               | LessOrEqualConstAST
               | AppenConstAST
               | ConcatenateConstAST
+              | AndConstAST
+              | OrConstAST
               deriving Show
