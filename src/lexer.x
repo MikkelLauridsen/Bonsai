@@ -23,11 +23,13 @@ $digit   = 0-9
 $lower   = [a-z]
 $upper   = [A-Z]
 $alpha   = [a-zA-Z]
+$regchar = [\x20-\x7E] # \\
+$spechar = [t b n r f \' \" \\]
 $stringb = $printable # \"
 
 tokens :-
 
-      $white+                           ;
+      $white+                       ;
     \#.*                            ;
     var                             { lex' VarToken}
     let                             { lex' LetToken}
@@ -40,7 +42,7 @@ tokens :-
     \=\>                            { lex' FollowsToken}
     $digit+                         { lex (IntToken . read)}
     $digit+\.$digit+                { lex (FloatToken . read)}
-    \'.\'                           { lex (CharToken . read)}
+    \'($regchar | \\ $spechar)\'    { lex (CharToken . read)}
     \"$stringb*\"                   { lex (StringToken . tail . init)}
     $upper [$alpha $digit \_ \']*   { lex TypeIdToken}
     $lower [$alpha $digit \_ \']*   { lex VarIdToken}
