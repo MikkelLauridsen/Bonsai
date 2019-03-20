@@ -9,7 +9,7 @@ module Lexer
 , Alex(..)
 , runAlex'
 , alexMonadScan'
-, alexError'
+, handleError
 ) where
 
 import Prelude hiding (lex)
@@ -29,7 +29,7 @@ $stringb = $printable # \"
 
 tokens :-
 
-      $white+                                                       ;
+    $white+                                                         ;
     \#.*                                                            ;
     var                                                             { lex' VarToken}
     let                                                             { lex' LetToken}
@@ -79,38 +79,38 @@ tokens :-
 {
 
 data Terminal = 
-        VarToken                 |
-        LetToken                 |
-        InToken                  |
-        MatchToken               |
-        CaseToken                |
-        TypeToken                |
-        BoolToken Bool           |
-        FollowsToken             |
-        IntToken Int             |
-        FloatToken Float         |
-        CharToken Char           |
-        StringToken String       |
-        TypeIdToken String       |
-        VarIdToken String        |
-        GuardToken               |
-        DeclareToken             |
-        CurlyOpenToken           |
-        CurlyCloseToken          |
-        AnnotateToken            |
-        SquareOpenToken          |
-        SquareCloseToken         |
-        ParenOpenToken           |
-        ParenCloseToken          |
-        EntailsToken             |
-        CommaToken               |
-        WildcardToken            |
-        LevelOneOpToken String   |
-        LevelTwoOpToken String   |
-        LevelThreeOpToken String |
-        UnaryOpToken String      |
-        EOFToken
-        deriving (Eq, Show)
+    VarToken                 |
+    LetToken                 |
+    InToken                  |
+    MatchToken               |
+    CaseToken                |
+    TypeToken                |
+    BoolToken Bool           |
+    FollowsToken             |
+    IntToken Int             |
+    FloatToken Float         |
+    CharToken Char           |
+    StringToken String       |
+    TypeIdToken String       |
+    VarIdToken String        |
+    GuardToken               |
+    DeclareToken             |
+    CurlyOpenToken           |
+    CurlyCloseToken          |
+    AnnotateToken            |
+    SquareOpenToken          |
+    SquareCloseToken         |
+    ParenOpenToken           |
+    ParenCloseToken          |
+    EntailsToken             |
+    CommaToken               |
+    WildcardToken            |
+    LevelOneOpToken String   |
+    LevelTwoOpToken String   |
+    LevelThreeOpToken String |
+    UnaryOpToken String      |
+    EOFToken
+    deriving (Eq, Show)
 
 data AlexUserState = AlexUserState { filePath :: FilePath }
 
@@ -160,34 +160,45 @@ terminalString EOFToken                   = "$"
 
 alexEOF :: Alex Token
 alexEOF = do
-  (p,_,_,_) <- alexGetInput
-  return $ Token p EOFToken
+  (pos, _, _, _) <- alexGetInput
+  return (Token pos EOFToken)
 
 lex :: (String -> Terminal) -> AlexAction Token
-lex f = \(p,_,_,s) i -> return $ Token p (f (take i s))
+lex func = \(pos, _, _, string) count -> return (Token pos (func (take count string)))
 
 lex' :: Terminal -> AlexAction Token
 lex' = lex . const
 
 alexMonadScan' :: Alex Token
 alexMonadScan' = do
-  inp <- alexGetInput
-  sc <- alexGetStartCode
-  case alexScan inp sc of
-    AlexEOF -> alexEOF
-    AlexError (p, _, _, s) ->
-        alexError' p ("ERROR: invalid lexeme at character '" ++ [head s] ++ "'")
-    AlexSkip  inp' len -> do
-        alexSetInput inp'
-        alexMonadScan'
-    AlexToken inp' len action -> do
-        alexSetInput inp'
-        action (ignorePendingBytes inp) len
+    input <- alexGetInput
+    sCode <- alexGetStartCode
+    case alexScan input sCode of
+      AlexEOF -> alexEOF
+      AlexError (pos, _, _, string) ->
+          handleError pos (getErrorMessage string)
+      AlexSkip  input' length -> do
+          alexSetInput input'
+          alexMonadScan'
+      AlexToken input' length action -> do
+          alexSetInput input'
+          action (ignorePendingBytes input) length
 
-alexError' :: AlexPosn -> String -> Alex a
-alexError' (AlexPn _ l c) msg = do
+getErrorMessage :: String -> String
+getErrorMessage string = "unexpected character '" ++ 
+                         [head string] ++ 
+                         "'\n   " ++
+                         getPositionString string ++
+                         "\n   ^"
+
+
+getPositionString :: String -> String
+getPositionString string = takeWhile (not . (flip elem) "\r\n") string
+
+handleError :: AlexPosn -> String -> Alex a
+handleError (AlexPn _ line column) err = do 
     path <- getFilePath
-    alexError (path ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ msg)
+    alexError (path ++ ":" ++ show line ++ ":" ++ show column ++ ": error: " ++ err)
 
 runAlex' :: Alex a -> FilePath -> String -> Either String a
 runAlex' a path input = runAlex input (setFilePath path >> a)

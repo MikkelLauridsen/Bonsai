@@ -179,7 +179,7 @@ lexwrap :: (Token -> Alex a) -> Alex a
 lexwrap = (alexMonadScan' >>=)
 
 happyError :: Token -> Alex a
-happyError (Token p t) = alexError' p ("Parse error at token '" ++ terminalString t ++ "'")
+happyError (Token pos token) = handleError pos ("unexpected token '" ++ terminalString token ++ "'")
 
 parseBonsai :: FilePath -> String -> Either String ProgAST
 parseBonsai = runAlex' parse
