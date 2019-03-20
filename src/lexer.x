@@ -29,51 +29,51 @@ $stringb = $printable # \"
 
 tokens :-
 
-      $white+                       ;
-    \#.*                            ;
-    var                             { lex' VarToken}
-    let                             { lex' LetToken}
-    in                              { lex' InToken}
-    match                           { lex' MatchToken}
-    case                            { lex' CaseToken}
-    type                            { lex' TypeToken}
-    true                            { lex' (BoolToken True)}
-    false                           { lex' (BoolToken False)}
-    \=\>                            { lex' FollowsToken}
-    $digit+                         { lex (IntToken . read)}
-    $digit+\.$digit+                { lex (FloatToken . read)}
-    \'($regchar | \\ $spechar)\'    { lex (CharToken . read)}
-    \"$stringb*\"                   { lex (StringToken . tail . init)}
-    $upper [$alpha $digit \_ \']*   { lex TypeIdToken}
-    $lower [$alpha $digit \_ \']*   { lex VarIdToken}
-    \|                              { lex' GuardToken}
-    \=                              { lex' DeclareToken}
-    \{                              { lex' CurlyOpenToken}
-    \}                              { lex' CurlyCloseToken}
-    \:\:                            { lex' AnnotateToken}
-    \[                              { lex' SquareOpenToken}
-    \]                              { lex' SquareCloseToken}
-    \(                              { lex' ParenOpenToken}
-    \)                              { lex' ParenCloseToken}
-    \-\>                            { lex' EntailsToken}
-    \,                              { lex' CommaToken}
-    \?                              { lex' WildcardToken}
-    \+                              { lex LevelOneOpToken} 
-    \-                              { lex LevelOneOpToken}
-    \+\+                            { lex LevelOneOpToken}
-    \&\&                            { lex LevelOneOpToken}
-    \|\|                            { lex LevelOneOpToken}
-    \*                              { lex LevelTwoOpToken}
-    \/                              { lex LevelTwoOpToken}
-    \%                              { lex LevelTwoOpToken}
-    \=\=                            { lex LevelTwoOpToken}
-    \<                              { lex LevelThreeOpToken} 
-    \>                              { lex LevelThreeOpToken}
-    \<\=                            { lex LevelThreeOpToken}
-    \>\=                            { lex LevelThreeOpToken}
-    \:                              { lex LevelThreeOpToken}
-    \!                              { lex UnaryOpToken}
-    \~                              { lex UnaryOpToken}
+      $white+                                             ;
+    \#.*                                                  ;
+    var                                                   { lex' VarToken}
+    let                                                   { lex' LetToken}
+    in                                                    { lex' InToken}
+    match                                                 { lex' MatchToken}
+    case                                                  { lex' CaseToken}
+    type                                                  { lex' TypeToken}
+    true                                                  { lex' (BoolToken True)}
+    false                                                 { lex' (BoolToken False)}
+    \=\>                                                  { lex' FollowsToken}
+    $digit+                                               { lex (IntToken . read)}
+    $digit+\.$digit+                                      { lex (FloatToken . read)}
+    \'($regchar | \\ $spechar)\'                          { lex (CharToken . read)}
+    \"$stringb*\"                                         { lex (StringToken . tail . init)}
+    $upper [$alpha $digit \_]* [$alpha $digit]* \'? \*?   { lex TypeIdToken}
+    $lower [$alpha $digit \_]* [$alpha $digit]* \'?       { lex VarIdToken}
+    \|                                                    { lex' GuardToken}
+    \=                                                    { lex' DeclareToken}
+    \{                                                    { lex' CurlyOpenToken}
+    \}                                                    { lex' CurlyCloseToken}
+    \:\:                                                  { lex' AnnotateToken}
+    \[                                                    { lex' SquareOpenToken}
+    \]                                                    { lex' SquareCloseToken}
+    \(                                                    { lex' ParenOpenToken}
+    \)                                                    { lex' ParenCloseToken}
+    \-\>                                                  { lex' EntailsToken}
+    \,                                                    { lex' CommaToken}
+    \?                                                    { lex' WildcardToken}
+    \+                                                    { lex LevelOneOpToken} 
+    \-                                                    { lex LevelOneOpToken}
+    \+\+                                                  { lex LevelOneOpToken}
+    \&\&                                                  { lex LevelOneOpToken}
+    \|\|                                                  { lex LevelOneOpToken}
+    \*                                                    { lex LevelTwoOpToken}
+    \/                                                    { lex LevelTwoOpToken}
+    \%                                                    { lex LevelTwoOpToken}
+    \=\=                                                  { lex LevelTwoOpToken}
+    \<                                                    { lex LevelThreeOpToken} 
+    \>                                                    { lex LevelThreeOpToken}
+    \<\=                                                  { lex LevelThreeOpToken}
+    \>\=                                                  { lex LevelThreeOpToken}
+    \:                                                    { lex LevelThreeOpToken}
+    \!                                                    { lex UnaryOpToken}
+    \~                                                    { lex UnaryOpToken}
 
 
 {
