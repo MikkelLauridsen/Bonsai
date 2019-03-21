@@ -205,25 +205,6 @@ findCurrentLine ((AlexPn _ line column), _, _, string) current = if column == 1
                                                                     then takeWhile (not . (flip elem) "\n\r") string
                                                                     else current
 
-
-incTakeWhile :: (a -> Bool) -> [a] -> [a]
-incTakeWhile _ []        = []
-incTakeWhile pred (x:xs) = x:(if pred x then incTakeWhile pred xs else [])
-
---this one may be unnecessary
-replace :: Char -> Char -> String -> String
-replace _ _ []             = []
-replace target repl (x:xs) = if x == target
-                              then repl:(replace target repl xs)
-                              else x:(replace target repl xs)
-
-unfoldCurrentLine :: [String] -> String
-unfoldCurrentLine current = init (concStringRec current)
-
-concStringRec :: [String] -> String
-concStringRec []     = ""
-concStringRec (x:xs) = x ++ concStringRec xs
-
 getErrorMessage :: String -> AlexPosn -> String -> String
 getErrorMessage current (AlexPn _ line column) string = "unexpected character '" ++ 
                                                         [head string] ++ 
