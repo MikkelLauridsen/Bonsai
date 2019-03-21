@@ -201,13 +201,9 @@ alexMonadScan' = do
           action (ignorePendingBytes input) length
 
 findCurrentLine :: AlexInput -> String -> String
-findCurrentLine (_, _, _, (x:xs)) current = case x of
-                                              ' '  -> current ++ [x]
-                                              '\n' -> ""
-                                              '\r' -> ""
-                                              '\"' -> current ++ [x] ++ incTakeWhile (not . (flip elem) "\"") xs
-                                              '#'  -> current ++ [x] ++ takeWhile (not . (flip elem) "\n\r") xs
-                                              _    -> current ++ takeWhile (not . (flip elem) " \n\r") (x:xs)
+findCurrentLine ((AlexPn _ line column), _, _, string) current = if column == 1
+                                                                    then takeWhile (not . (flip elem) "\n\r") string
+                                                                    else current
 
 
 incTakeWhile :: (a -> Bool) -> [a] -> [a]
@@ -235,14 +231,14 @@ getErrorMessage current (AlexPn _ line column) string = "unexpected character '"
                                                         take column current ++
                                                         getPositionString string ++
                                                         "\n   " ++
-                                                        getErrorIndicator column
+                                                        getErrorIndicator (column - 1)
 
 getErrorIndicator :: Int -> String
 getErrorIndicator 0    = "^"
 getErrorIndicator size = ' ':(getErrorIndicator (size - 1))
 
 getPositionString :: String -> String
-getPositionString string = takeWhile (not . (flip elem) "\r\n") string
+getPositionString string = tail (takeWhile (not . (flip elem) "\r\n") string)
 
 handleError :: AlexPosn -> String -> Alex a
 handleError (AlexPn _ line column) err = do 

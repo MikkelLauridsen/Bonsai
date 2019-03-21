@@ -10,7 +10,7 @@
 
 var test = "hehe"
 
-var bool`Val_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) & y)
+var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) & y)
 
 #var max = list::[Int] => {
 #    match list {
