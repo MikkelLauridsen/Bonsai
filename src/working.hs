@@ -32,10 +32,12 @@ data Terminal =
     EOFToken
     deriving (Eq, Show)
 
-data AlexUserState = AlexUserState { filePath :: FilePath }
+data AlexUserState = AlexUserState { 
+                                    filePath :: FilePath
+                                   }
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "<unknown>"
+alexInitUserState = AlexUserState "<unknown>" ""
 
 getFilePath :: Alex FilePath
 getFilePath = liftM filePath alexGetUserState
@@ -111,6 +113,8 @@ getErrorMessage string = "error: unexpected character '" ++
                          getPositionString string ++
                          "\n    ^"
 
+getCurrentString :: AlexInput -> (String, Int64)
+getCurrentString (_, _, string, size) = (string, size)
 
 getPositionString :: String -> String
 getPositionString string = takeWhile (not . flip . (elem "\r\n")) string

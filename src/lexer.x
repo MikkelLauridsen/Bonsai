@@ -112,16 +112,29 @@ data Terminal =
     EOFToken
     deriving (Eq, Show)
 
-data AlexUserState = AlexUserState { filePath :: FilePath }
+data AlexUserState = AlexUserState { 
+                                     filePath :: FilePath 
+                                   , currentLine :: String
+                                   }
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "<unknown>"
+alexInitUserState = AlexUserState "<unknown>" ""
+
+getCurrentLine :: Alex String
+getCurrentLine = liftM currentLine alexGetUserState
+
+setCurrentLine :: String -> Alex ()
+setCurrentLine current = do
+    path <- getFilePath
+    alexSetUserState (AlexUserState path current)
 
 getFilePath :: Alex FilePath
 getFilePath = liftM filePath alexGetUserState
 
 setFilePath :: FilePath -> Alex ()
-setFilePath = alexSetUserState . AlexUserState
+setFilePath path = do 
+    current <- getCurrentLine
+    alexSetUserState (AlexUserState path current)
 
 data Token = Token AlexPosn Terminal deriving (Show)
 
@@ -175,22 +188,58 @@ alexMonadScan' = do
     sCode <- alexGetStartCode
     case alexScan input sCode of
       AlexEOF -> alexEOF
-      AlexError (pos, _, _, string) ->
-          handleError pos (getErrorMessage string)
+      AlexError (pos, _, _, string) -> do
+          current <- getCurrentLine
+          handleError pos (getErrorMessage current pos string)
       AlexSkip  input' length -> do
+          current <- getCurrentLine
+          setCurrentLine (findCurrentLine input' current)
           alexSetInput input'
           alexMonadScan'
       AlexToken input' length action -> do
           alexSetInput input'
           action (ignorePendingBytes input) length
 
-getErrorMessage :: String -> String
-getErrorMessage string = "unexpected character '" ++ 
-                         [head string] ++ 
-                         "'\n   " ++
-                         getPositionString string ++
-                         "\n   ^"
+findCurrentLine :: AlexInput -> String -> String
+findCurrentLine (_, _, _, (x:xs)) current = case x of
+                                              ' '  -> current ++ [x]
+                                              '\n' -> ""
+                                              '\r' -> ""
+                                              '\"' -> current ++ [x] ++ incTakeWhile (not . (flip elem) "\"") xs
+                                              '#'  -> current ++ [x] ++ takeWhile (not . (flip elem) "\n\r") xs
+                                              _    -> current ++ takeWhile (not . (flip elem) " \n\r") (x:xs)
 
+
+incTakeWhile :: (a -> Bool) -> [a] -> [a]
+incTakeWhile _ []        = []
+incTakeWhile pred (x:xs) = x:(if pred x then incTakeWhile pred xs else [])
+
+--this one may be unnecessary
+replace :: Char -> Char -> String -> String
+replace _ _ []             = []
+replace target repl (x:xs) = if x == target
+                              then repl:(replace target repl xs)
+                              else x:(replace target repl xs)
+
+unfoldCurrentLine :: [String] -> String
+unfoldCurrentLine current = init (concStringRec current)
+
+concStringRec :: [String] -> String
+concStringRec []     = ""
+concStringRec (x:xs) = x ++ concStringRec xs
+
+getErrorMessage :: String -> AlexPosn -> String -> String
+getErrorMessage current (AlexPn _ line column) string = "unexpected character '" ++ 
+                                                        [head string] ++ 
+                                                        "' in:\n   " ++
+                                                        take column current ++
+                                                        getPositionString string ++
+                                                        "\n   " ++
+                                                        getErrorIndicator column
+
+getErrorIndicator :: Int -> String
+getErrorIndicator 0    = "^"
+getErrorIndicator size = ' ':(getErrorIndicator (size - 1))
 
 getPositionString :: String -> String
 getPositionString string = takeWhile (not . (flip elem) "\r\n") string
