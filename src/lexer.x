@@ -206,13 +206,19 @@ findCurrentLine ((AlexPn _ line column), _, _, string) current = if column == 1
                                                                     else current
 
 getErrorMessage :: String -> AlexPosn -> String -> String
-getErrorMessage current (AlexPn _ line column) string = "unexpected character '" ++ 
-                                                        [head string] ++ 
-                                                        "' in:\n   " ++
-                                                        take column current ++
-                                                        getPositionString string ++
-                                                        "\n   " ++
-                                                        getErrorIndicator (column - 1)
+getErrorMessage current (AlexPn _ line column) ('\n':remainder) = "illegal newline in string at:\n  " ++ 
+                                                                  take (column - 1) current ++
+                                                                  " " ++ 
+                                                                  getPositionString (' ':remainder) ++
+                                                                  "\n   " ++
+                                                                  getErrorIndicator (column - 2)
+getErrorMessage current (AlexPn _ line column) string           = "unexpected character '" ++ 
+                                                                  [head string] ++ 
+                                                                  "' in:\n   " ++
+                                                                  take column current ++
+                                                                  getPositionString string ++
+                                                                  "\n   " ++
+                                                                  getErrorIndicator (column - 1)
 
 getErrorIndicator :: Int -> String
 getErrorIndicator 0    = "^"

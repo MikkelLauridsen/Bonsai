@@ -8,9 +8,10 @@
 #
 #var expr = 43.3 * 32.2 /3.2 + (43.22 - 2.2 * 43.2)
 
-var test = "hehe"
+var test = "he
+he"
 
-var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) & y)
+var bool``al_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) & y)
 
 #var max = list::[Int] => {
 #    match list {
