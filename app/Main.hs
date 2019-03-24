@@ -7,7 +7,7 @@ main :: IO ()
 main = do
     args <- getArgs
     result <- case args of
-                []     -> fmap (parseBonsai "<stdin>") getContents
+                []     -> fmap (parseBonsai "<stdin>") getLine
                 [file] -> fmap (parseBonsai file) (readFile file)
                 _      -> error "expected a single file." 
     either putStrLn print result
