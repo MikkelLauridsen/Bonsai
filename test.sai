@@ -8,10 +8,11 @@
 #
 #var expr = 43.3 * 32.2 /3.2 + (43.22 - 2.2 * 43.2)
 
-var test = "he
-he"
+var test = "interesting.\nwassupl"
 
-var bool``al_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) & y)
+var test_2 = '\n'
+
+#var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) && y)
 
 #var max = list::[Int] => {
 #    match list {
@@ -28,3 +29,11 @@ var bool``al_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) & y)
 #        })
 #    }
 #}
+
+var x = "aaaa\""
+
+var xx_x = 32.3 * 3.2
+
+#var virk_tak = 230
+
+var xx_y = "heej noobs \l hehe xD"
