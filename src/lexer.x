@@ -83,7 +83,7 @@ tokens :-
 <state_char>   $regchar                                                        { addToChar}
 <state_char>   \\$spechar                                                      { addToChar}
 <state_char>   \n                                                              { specialError newlineError} 
-<state_char>    \\                                                             { specialError illegalEscapeError}
+<state_char>   \\                                                              { specialError illegalEscapeError}
 
 {
 
@@ -291,8 +291,8 @@ alexEOF = do
   state <- getState
   (pos, _, _, _) <- alexGetInput
   case state of
-    StringState  -> handleError pos "String not closed at end of file"
-    CharState    -> handleError pos "Char not closed at end of file"
+    StringState  -> handleError pos "string not closed at end of file"
+    CharState    -> handleError pos "char not closed at end of file"
     DefaultState -> return (Token pos EOFToken)
 
 alexMonadScan' :: Alex Token
