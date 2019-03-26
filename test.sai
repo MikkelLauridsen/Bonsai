@@ -1,40 +1,41 @@
 
 
 
-#type Maybe = {
-#| None
-#| Some Int
-#}
-#
+type Maybe = {
+| None
+| Some Int
+}
+
 #var expr = 43.3 * 32.2 /3.2 + (43.22 - 2.2 * 43.2)
 
-var test = "interesting.\nw
-assupl"
+#var test = "interesting.\nwassupl"
 
 var test_2 = '\n'
 
-#var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) && y)
+var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) && y)
 
-#var max = list::[Int] => {
-#    match list {
-#    | []     -> None
-#    | (x:xs) ->
-#        let current = max xs in 
-#        (match current {
-#        | None -> x
-#        | ?    ->
-#            case {
-#            | x > current  -> x
-#            | x <= current -> current
-#            }
-#        })
-#    }
-#}
+var test = "noob"
 
-var x = "aaaa\""
+var max = list::[Int] => {
+    match list {
+    | []     -> None
+    | (x:xs) ->
+         current = max xs in 
+        (match current {
+        | None -> x
+        | ?    ->
+            case {
+            | x > current  -> x
+            | x <= current -> current
+            }
+        })
+    }
+}
 
-var xx_x = 32.3 * 3.2
+#var x = "aaaa\""
+
+#var xx_x = 32.3 * 3.2
 
 #var virk_tak = 230
 
-var xx_y = "heej noobs \l hehe xD"
+#var xx_y = "heej noobs l hehe xD"

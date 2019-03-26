@@ -13,7 +13,7 @@ import Ast
 %tokentype { Token }
 %monad { Alex }
 %lexer { lexwrap } { Token _ EOFToken }
-%error { happyError }
+%error { parseError }
 
 %token
     var       { Token _ VarToken}
@@ -178,8 +178,30 @@ List_body   :                                        { [] }
 lexwrap :: (Token -> Alex a) -> Alex a
 lexwrap = (alexMonadScan' >>=)
 
-happyError :: Token -> Alex a
-happyError (Token pos token) = handleError pos ("unexpected token '" ++ terminalString token ++ "'")
+parseError :: Token -> Alex a
+parseError (Token pos token) = do
+        ((Token _ prev), _) <- getCurrentTokens
+        line <- getCurrentLine
+        (_, offset) <- getLineNumber
+        handleError pos (getErrorMessage pos line token prev offset)
+
+getErrorMessage :: AlexPosn -> String -> Terminal -> Terminal -> Int -> String
+getErrorMessage (AlexPn _ _ column) line current previous offset = "unexpected token '" ++ 
+                                                                   terminalString current ++ 
+                                                                   "' at:\n  " ++
+                                                                   line ++
+                                                                   "\n  " ++
+                                                                   getErrorIndicator (column - offset) (length (terminalString current)) ++
+                                                                   "\n  Expected: " ++ 
+                                                                   expected previous
+
+getErrorIndicator :: Int -> Int -> String
+getErrorIndicator num length
+        | num <= 0  = take length (repeat '^')
+        | otherwise = ' ':(getErrorIndicator (num - 1) length)
+
+expected :: Terminal -> String
+expected term = "TODO!"
 
 parseBonsai :: FilePath -> String -> Either String ProgAST
 parseBonsai = runAlex' parse
