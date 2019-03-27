@@ -43,8 +43,8 @@ tokens :-
 <0>            true                                                            { lex' (BoolToken True)}
 <0>            false                                                           { lex' (BoolToken False)}
 <0>            \=\>                                                            { lex' FollowsToken}
-<0>            $digit+                                                         { lex (IntToken . read)}
-<0>            $digit+\.$digit+                                                { lex (FloatToken . read)}
+<0>            \-? $digit+                                                     { lex (IntToken . read)}
+<0>            \-? $digit+\.$digit+                                            { lex (FloatToken . read)}
 <0>            ($upper | $upper [$alpha $digit \_]* [$alpha $digit]) \'? \*?   { lex TypeIdToken}
 <0>            ($lower | $lower [$alpha $digit \_]* [$alpha $digit]) \'?       { lex VarIdToken}
 <0>            \|                                                              { lex' GuardToken}
