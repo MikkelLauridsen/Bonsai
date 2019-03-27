@@ -89,6 +89,7 @@ tokens :-
 <state_char>   \\                                                              { specialError illegalEscapeError}
 
 {
+-- ensures correct HS color coding: "
 
 state_default = 0
 
@@ -129,17 +130,18 @@ data Terminal =
 data LexState = DefaultState | StringState | CharState
 
 data AlexUserState = AlexUserState { 
-                                     filePath    :: FilePath
-                                   , stringValue :: String
-                                   , state     :: LexState
-                                   , charValue   :: (Char, Bool) 
-                                   , currentLine :: String
-                                   , currentTokens :: (Token, Token)
-                                   , lineNumber :: (Int, Int)
+                                      filePath      :: FilePath
+                                    , stringValue   :: String
+                                    , state         :: LexState
+                                    , charValue     :: (Char, Bool) 
+                                    , currentLine   :: String
+                                    , currentTokens :: [Terminal]
+                                    , lineNumber    :: (Int, Int)
+                                    , position      :: AlexPosn
                                    }
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "<unknown>" "" DefaultState (' ', False) "" ((Token (AlexPn 1 1 1) EOFToken), (Token (AlexPn 1 1 1) EOFToken)) (-1, 0)
+alexInitUserState = AlexUserState "<unknown>" "" DefaultState (' ', False) "" [] (-1, 0) (AlexPn 0 0 0)
 
 getFilePath :: Alex FilePath
 getFilePath = liftM filePath alexGetUserState
@@ -156,11 +158,14 @@ getCharValue = liftM charValue alexGetUserState
 getCurrentLine :: Alex String
 getCurrentLine = liftM currentLine alexGetUserState
 
-getCurrentTokens :: Alex (Token, Token)
+getCurrentTokens :: Alex [Terminal]
 getCurrentTokens = liftM currentTokens alexGetUserState
 
 getLineNumber :: Alex (Int, Int)
 getLineNumber = liftM lineNumber alexGetUserState
+
+getPosition :: Alex AlexPosn
+getPosition = liftM position alexGetUserState
 
 setFilePath :: FilePath -> Alex ()
 setFilePath path = do 
@@ -170,7 +175,8 @@ setFilePath path = do
     current <- getCurrentLine
     tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current tokens line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
 
 setStringValue :: String -> Alex ()
 setStringValue string = do 
@@ -180,7 +186,8 @@ setStringValue string = do
     current <- getCurrentLine
     tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current tokens line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
 
 setState :: LexState -> Alex ()
 setState state = do
@@ -190,7 +197,8 @@ setState state = do
     current <- getCurrentLine
     tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current tokens line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
 
 setCharValue :: (Char, Bool) -> Alex ()
 setCharValue char = do 
@@ -200,7 +208,8 @@ setCharValue char = do
     current <- getCurrentLine
     tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current tokens line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
 
 setCurrentLine :: String -> Alex ()
 setCurrentLine current = do
@@ -210,18 +219,20 @@ setCurrentLine current = do
     char <- getCharValue
     tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current tokens line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
 
-setCurrentTokens :: Token -> Alex ()
+setCurrentTokens :: Terminal -> Alex ()
 setCurrentTokens token = do
     path <- getFilePath
     string <- getStringValue
     state <- getState
     char <- getCharValue
     current <- getCurrentLine
-    (_, prevToken) <- getCurrentTokens
+    tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current (token, prevToken) line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current (token:tokens) line pos)
 
 setLineNumber :: (Int, Int) -> Alex ()
 setLineNumber line = do
@@ -231,7 +242,20 @@ setLineNumber line = do
     char <- getCharValue
     current <- getCurrentLine
     tokens <- getCurrentTokens
-    alexSetUserState (AlexUserState path string state char current tokens line)
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
+
+setPosition :: AlexPosn -> Alex ()
+setPosition pos = do
+    path <- getFilePath
+    string <- getStringValue
+    state <- getState
+    char <- getCharValue
+    current <- getCurrentLine
+    tokens <- getCurrentTokens
+    line <- getLineNumber
+    alexSetUserState (AlexUserState path string state char current tokens line pos)
+
 
 data Token = Token AlexPosn Terminal deriving (Show)
 
@@ -301,16 +325,20 @@ enterChar = \(pos, _, _, string) count -> do
     alexMonadScan'
 
 addToChar :: AlexAction Token
-addToChar = \(pos, _, _, string) count -> do 
-    setCharValue (convert_to_char (take count string), True)
-    alexMonadScan'
+addToChar = \input@(pos, _, _, string) count -> do
+    (_, hasChar) <- getCharValue
+    if hasChar
+      then (specialError charSizeError) input count
+      else do
+        setCharValue (convert_to_char (take count string), True)
+        alexMonadScan'
 
 finishChar :: AlexAction Token
-finishChar = \(pos, _, _, string) count -> do
+finishChar = \input@(pos, _, _, string) count -> do
     (char, hasChar) <- getCharValue
     setState DefaultState
     if hasChar == False
-      then (handleError pos ("missing char value at:\n  ")) --TODO!
+      then (specialError emptyCharError) input count
       else return (Token pos (CharToken char))
 
 -- utility
@@ -354,31 +382,34 @@ alexMonadScan' = do
       AlexToken input' length action -> do
           updateLine input'
           alexSetInput input'
-          token <- action (ignorePendingBytes input) length
-          setCurrentTokens token
+          token@(Token _ term) <- action (ignorePendingBytes input) length
+          setCurrentTokens term
           return token
 
 updateLine :: AlexInput -> Alex ()
-updateLine input = do
+updateLine input@(pos, _, _, _) = do
     line <- getLineNumber
     current <- getCurrentLine
     let (upCurrent, upLine) = findCurrentLine input current line
     setCurrentLine upCurrent
+    setPosition pos
     setLineNumber upLine
 
 
 findCurrentLine :: AlexInput -> String -> (Int, Int) -> (String, (Int, Int))
-findCurrentLine ((AlexPn _ line column), _, _, string) current (lineN, offset) = if (line /= lineN)
-                                                                                  then (takeWhile (not . (flip elem) "\n\r") string, (line, column))
-                                                                                  else (current, (lineN, offset))
+findCurrentLine ((AlexPn _ line column), _, _, string) current (lineN, offset) = 
+    if (line /= lineN)
+      then (takeWhile (not . (flip elem) "\n\r") string, (line, column))
+      else (current, (lineN, offset))
 
 getErrorMessage :: String -> AlexPosn -> String -> Int -> String
-getErrorMessage current (AlexPn _ line column) string offset = "unexpected character '" ++ 
-                                                               [head string] ++ 
-                                                               "' at:\n   " ++
-                                                               current ++
-                                                               "\n   " ++
-                                                               getErrorIndicator (column - offset)
+getErrorMessage current (AlexPn _ line column) string offset = 
+    "unexpected character '" ++ 
+    [head string] ++ 
+    "' at:\n   " ++
+    current ++
+    "\n   " ++
+    getErrorIndicator (column - offset)
 
 getErrorIndicator :: Int -> String
 getErrorIndicator 0    = "^"
@@ -394,24 +425,40 @@ handleError (AlexPn _ line column) err = do
 
 -- special error cases
 
-specialError :: (String -> AlexPosn -> String -> String) -> AlexAction Token
+specialError :: (String -> AlexPosn -> String -> Int -> String) -> AlexAction Token
 specialError err = \(pos, _, _, string) count -> do 
     current <- getCurrentLine
-    handleError pos (err current pos string)
+    (_, offset) <- getLineNumber
+    handleError pos (err current pos string offset)
 
-newlineError current (AlexPn _ line column) (x:xs) = "illegal newline in string or char literal at:\n  " ++ 
-                                                      take (column - 1) current ++
-                                                      " " ++ 
-                                                      getPositionString (' ':xs) ++
-                                                      "\n   " ++
-                                                      getErrorIndicator (column - 2)
+emptyCharError current (AlexPn _ line column) string offset = 
+    "illegal closing of char sequence at:\n  " ++
+    takeWhile (not . (flip elem) "\r\n") current ++
+    "\n  " ++
+    getErrorIndicator (column - offset) 
 
-illegalEscapeError current (AlexPn _ line column) string = "illegal escape sequence at:\n  " ++ 
-                                                           take (column - 1) current ++
-                                                           "\\" ++ 
-                                                           getPositionString string ++
-                                                           "\n   " ++
-                                                           getErrorIndicator (column - 2)
+charSizeError current (AlexPn _ line column) string offset = 
+    "illegally sized char at:\n  " ++
+    take (column + 1 - offset) current ++
+    getPositionString string ++
+    "\n   " ++
+    getErrorIndicator (column - 1 - offset)
+
+newlineError current (AlexPn _ line column) (x:xs) offset =  -- TODO: fix this one
+    "illegal newline in string or char literal at:\n  " ++
+    take (column - offset) current ++
+    " " ++ 
+    getPositionString (' ':xs) ++
+    "\n   " ++
+    getErrorIndicator (column - 1 - offset)
+
+illegalEscapeError current (AlexPn _ line column) string offset = 
+    "illegal escape sequence at:\n  " ++ 
+    take (column - offset) current ++
+    "\\" ++ 
+    getPositionString string ++
+    "\n   " ++
+    getErrorIndicator (column - 1 - offset)
 
 runAlex' :: Alex a -> FilePath -> String -> Either String a
 runAlex' a path input = runAlex input (setFilePath path >> a)

@@ -1,6 +1,4 @@
 
-
-
 type Maybe = {
 | None
 | Some Int
@@ -9,18 +7,19 @@ type Maybe = {
 #var expr = 43.3 * 32.2 /3.2 + (43.22 - 2.2 * 43.2)
 
 #var test = "interesting.\nwassupl"
-
+#var testttt = "xD
+#Dx"
 var test_2 = '\n'
 
 var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) && y)
 
 var test = "noob"
 
-var max = list::[Int] => {
+var max = list::[43.3, 32.2] => {
     match list {
     | []     -> None
     | (x:xs) ->
-         current = max xs in 
+    let current = max xs in 
         (match current {
         | None -> x
         | ?    ->

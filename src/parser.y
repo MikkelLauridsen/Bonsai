@@ -180,28 +180,39 @@ lexwrap = (alexMonadScan' >>=)
 
 parseError :: Token -> Alex a
 parseError (Token pos token) = do
-        ((Token _ prev), _) <- getCurrentTokens
+        tokens <- getCurrentTokens
         line <- getCurrentLine
         (_, offset) <- getLineNumber
-        handleError pos (getErrorMessage pos line token prev offset)
+        handleError pos (getErrorMessage pos line tokens offset)
 
-getErrorMessage :: AlexPosn -> String -> Terminal -> Terminal -> Int -> String
-getErrorMessage (AlexPn _ _ column) line current previous offset = "unexpected token '" ++ 
-                                                                   terminalString current ++ 
-                                                                   "' at:\n  " ++
-                                                                   line ++
-                                                                   "\n  " ++
-                                                                   getErrorIndicator (column - offset) (length (terminalString current)) ++
-                                                                   "\n  Expected: " ++ 
-                                                                   expected previous
+getErrorMessage :: AlexPosn -> String -> [Terminal] -> Int -> String
+getErrorMessage (AlexPn _ _ column) line (current:previous) offset = 
+        "unexpected token '" ++ 
+        terminalString current ++ 
+        "' at:\n  " ++
+        line ++
+        "\n  " ++
+        getErrorIndicator (column - offset) (length (terminalString current)) ++
+        "\n  " ++
+        expected previous
 
 getErrorIndicator :: Int -> Int -> String
 getErrorIndicator num length
         | num <= 0  = take length (repeat '^')
         | otherwise = ' ':(getErrorIndicator (num - 1) length)
 
-expected :: Terminal -> String
-expected term = "TODO!"
+expected :: [Terminal] -> String
+expected [] = "Expected: 'type' or 'var' declaration\n" --the case that the first token in the stream is illegal
+expected (TypeToken:xs)  = "Expected: type identifier\n"
+expected ((TypeIdToken _):TypeToken:xs) = "Expected: '='\n"
+expected (DeclareToken:(TypeIdToken _):TypeToken:xs) = "Expected: '{'\n"
+expected (CurlyOpenToken:DeclareToken:(TypeIdToken _):TypeToken:xs) = "Expected: '|'\n"
+expected (GuardToken:GuardToken:xs) = "Expected: type identifier, pattern or boolean expression\n"
+expected (CurlyOpenToken:GuardToken:xs) = "Expected: type identifier, pattern or boolean expression\n"
+expected (VarToken:xs) = "Expected: var identifier\n"
+expected ((VarIdToken _):VarToken:xs) = "Expected: '='\n"
+expected (DeclareToken:(VarIdToken _):VarToken:xs) = "Expected: an expression\n"
+expected _ = "TODO!"
 
 parseBonsai :: FilePath -> String -> Either String ProgAST
 parseBonsai = runAlex' parse
