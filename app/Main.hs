@@ -2,7 +2,12 @@ module Main (main) where
 
 import System.Environment (getArgs)
 import Parser (parseBonsai)
+import Ast
 import Prettifier
+
+showResult :: Either String ProgAST -> String
+showResult (Left err) = err
+showResult (Right prog) = prettyShow prog 0
 
 main :: IO ()
 main = do
@@ -11,4 +16,4 @@ main = do
                 []     -> fmap (parseBonsai "<stdin>") getLine
                 [file] -> fmap (parseBonsai file) (readFile file)
                 _      -> error "expected a single file." 
-    putStrLn (prettify result)
+    putStrLn (showResult result)
