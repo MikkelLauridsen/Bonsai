@@ -35,6 +35,10 @@ var max = list::[Int] => {
             | x > current  -> x
             | x <= current -> current
             }
+        | Other -> 
+            match current {
+                | ? -> current
+            }
         | ? -> [1, 2]
         })
     }
@@ -50,6 +54,16 @@ var virk_tak = 230
 
 var xx_y = "heej noobs l hehe xD"
 
+var double = x => {
+    x * 2
+}
+
+var test::((Int, Int, Int) -> Int) = input => {
+    let (x, y, z) = input in (
+        x * y + z
+    )
+}
+
 var eval::(ExpressionAST -> Float) = expr => {
     match expr {
         | PlusAST   (left, right) -> eval left + eval right
@@ -60,3 +74,14 @@ var eval::(ExpressionAST -> Float) = expr => {
         | ValueAST  value         -> value
     }
 }
+
+var matchtest = x => {
+    match x {
+        | 5 -> 1
+        | 7 -> 9
+        | (x, (y, z), (a, b)) -> x + y + z
+        | ? -> 10
+    }
+}
+
+var main = matchtest (1, (2, 3))
