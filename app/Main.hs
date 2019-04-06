@@ -5,7 +5,6 @@ import Parser (parseBonsai)
 import Ast
 import Prettifier
 import System.IO
-import Ast
 
 prettify :: Either String ProgAST -> String
 prettify (Left err) = err
