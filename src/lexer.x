@@ -10,7 +10,6 @@ module Lexer
 , runAlex'
 , alexMonadScan'
 , handleError
-, getCurrentTokens
 , getCurrentLine
 , getLineNumber
 ) where
@@ -135,13 +134,12 @@ data AlexUserState = AlexUserState {
                                     , state         :: LexState
                                     , charValue     :: (Char, Bool) 
                                     , currentLine   :: String
-                                    , currentTokens :: [Terminal]
                                     , lineNumber    :: (Int, Int)
                                     , position      :: AlexPosn
                                    }
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "<unknown>" "" DefaultState (' ', False) "" [] (-1, 0) (AlexPn 0 0 0)
+alexInitUserState = AlexUserState "<unknown>" "" DefaultState (' ', False) "" (-1, 0) (AlexPn 0 0 0)
 
 getFilePath :: Alex FilePath
 getFilePath = liftM filePath alexGetUserState
@@ -158,9 +156,6 @@ getCharValue = liftM charValue alexGetUserState
 getCurrentLine :: Alex String
 getCurrentLine = liftM currentLine alexGetUserState
 
-getCurrentTokens :: Alex [Terminal]
-getCurrentTokens = liftM currentTokens alexGetUserState
-
 getLineNumber :: Alex (Int, Int)
 getLineNumber = liftM lineNumber alexGetUserState
 
@@ -173,10 +168,9 @@ setFilePath path = do
     state <- getState
     char <- getCharValue
     current <- getCurrentLine
-    tokens <- getCurrentTokens
     line <- getLineNumber
     pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setStringValue :: String -> Alex ()
 setStringValue string = do 
@@ -184,10 +178,9 @@ setStringValue string = do
     state <- getState
     char <- getCharValue
     current <- getCurrentLine
-    tokens <- getCurrentTokens
     line <- getLineNumber
     pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setState :: LexState -> Alex ()
 setState state = do
@@ -195,10 +188,9 @@ setState state = do
     string <- getStringValue
     char <- getCharValue
     current <- getCurrentLine
-    tokens <- getCurrentTokens
     line <- getLineNumber
     pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setCharValue :: (Char, Bool) -> Alex ()
 setCharValue char = do 
@@ -206,10 +198,9 @@ setCharValue char = do
     string <- getStringValue
     state <- getState
     current <- getCurrentLine
-    tokens <- getCurrentTokens
     line <- getLineNumber
     pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setCurrentLine :: String -> Alex ()
 setCurrentLine current = do
@@ -217,22 +208,9 @@ setCurrentLine current = do
     string <- getStringValue
     state <- getState
     char <- getCharValue
-    tokens <- getCurrentTokens
     line <- getLineNumber
     pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
-
-setCurrentTokens :: Terminal -> Alex ()
-setCurrentTokens token = do
-    path <- getFilePath
-    string <- getStringValue
-    state <- getState
-    char <- getCharValue
-    current <- getCurrentLine
-    tokens <- getCurrentTokens
-    line <- getLineNumber
-    pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current (token:tokens) line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setLineNumber :: (Int, Int) -> Alex ()
 setLineNumber line = do
@@ -241,9 +219,8 @@ setLineNumber line = do
     state <- getState
     char <- getCharValue
     current <- getCurrentLine
-    tokens <- getCurrentTokens
     pos <- getPosition
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setPosition :: AlexPosn -> Alex ()
 setPosition pos = do
@@ -252,9 +229,8 @@ setPosition pos = do
     state <- getState
     char <- getCharValue
     current <- getCurrentLine
-    tokens <- getCurrentTokens
     line <- getLineNumber
-    alexSetUserState (AlexUserState path string state char current tokens line pos)
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 
 data Token = Token AlexPosn Terminal deriving (Show)
@@ -382,9 +358,7 @@ alexMonadScan' = do
       AlexToken input' length action -> do
           updateLine input'
           alexSetInput input'
-          token@(Token _ term) <- action (ignorePendingBytes input) length
-          setCurrentTokens term
-          return token
+          action (ignorePendingBytes input) length
 
 updateLine :: AlexInput -> Alex ()
 updateLine input@(pos, _, _, _) = do

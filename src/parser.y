@@ -13,6 +13,7 @@ import Ast
 %tokentype { Token }
 %monad { Alex }
 %lexer { lexwrap } { Token _ EOFToken }
+%errorhandlertype explist
 %error { parseError }
 
 %token
@@ -178,15 +179,14 @@ List_body   :                                        { [] }
 lexwrap :: (Token -> Alex a) -> Alex a
 lexwrap = (alexMonadScan' >>=)
 
-parseError :: Token -> Alex a
-parseError (Token pos token) = do
-        tokens <- getCurrentTokens
+parseError :: (Token, [String]) -> Alex a
+parseError ((Token pos token), expected) = do
         line <- getCurrentLine
         (_, offset) <- getLineNumber
-        handleError pos (getErrorMessage pos line tokens offset)
+        handleError pos (getErrorMessage pos line token expected offset)
 
-getErrorMessage :: AlexPosn -> String -> [Terminal] -> Int -> String
-getErrorMessage (AlexPn _ _ column) line (current:previous) offset = 
+getErrorMessage :: AlexPosn -> String -> Terminal -> [String] -> Int -> String
+getErrorMessage (AlexPn _ _ column) line current expected offset = 
         "unexpected token '" ++ 
         terminalString current ++ 
         "' at:\n  " ++
@@ -194,25 +194,34 @@ getErrorMessage (AlexPn _ _ column) line (current:previous) offset =
         "\n  " ++
         getErrorIndicator (column - offset) (length (terminalString current)) ++
         "\n  " ++
-        expected previous
+        handleExpected expected
+
+handleExpected :: [String] -> String
+handleExpected expected = "expected: " ++
+        case map convertWord expected of
+            []       -> "\n"
+            [s]      -> s ++ "\n"
+            [s2, s1] -> s1 ++ " or " ++ s2 ++ "\n"
+            (s:ss)   -> (reverse ss >>= (++ ", ")) ++ s ++ "\n" 
+
+convertWord :: String -> String
+convertWord "unary_op" = "a unary operator"
+convertWord "var_id" = "a variable name"
+convertWord "type_id" = "a type name"
+convertWord "string" = "a string"
+convertWord "char" = "a char"
+convertWord "float" = "a float"
+convertWord "int" = "an int"
+convertWord "bool" = "a boolean"
+convertWord "case" = "a case expression"
+convertWord "match" = "a match expression"
+convertWord "let" = "a let expression"
+convertWord string = string
 
 getErrorIndicator :: Int -> Int -> String
 getErrorIndicator num length
         | num <= 0  = take length (repeat '^')
         | otherwise = ' ':(getErrorIndicator (num - 1) length)
-
-expected :: [Terminal] -> String
-expected [] = "Expected: 'type' or 'var' declaration\n" --the case that the first token in the stream is illegal
-expected (TypeToken:xs)  = "Expected: type identifier\n"
-expected ((TypeIdToken _):TypeToken:xs) = "Expected: '='\n"
-expected (DeclareToken:(TypeIdToken _):TypeToken:xs) = "Expected: '{'\n"
-expected (CurlyOpenToken:DeclareToken:(TypeIdToken _):TypeToken:xs) = "Expected: '|'\n"
-expected (GuardToken:GuardToken:xs) = "Expected: type identifier, pattern or boolean expression\n"
-expected (CurlyOpenToken:GuardToken:xs) = "Expected: type identifier, pattern or boolean expression\n"
-expected (VarToken:xs) = "Expected: var identifier\n"
-expected ((VarIdToken _):VarToken:xs) = "Expected: '='\n"
-expected (DeclareToken:(VarIdToken _):VarToken:xs) = "Expected: an expression\n"
-expected _ = "TODO!"
 
 parseBonsai :: FilePath -> String -> Either String ProgAST
 parseBonsai = runAlex' parse
