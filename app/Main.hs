@@ -2,9 +2,14 @@ module Main (main) where
 
 import System.Environment (getArgs)
 import Parser (parseBonsai)
+import Ast
 import Prettifier
 import System.IO
 import Ast
+
+prettify :: Either String ProgAST -> String
+prettify (Left err) = err
+prettify (Right prog) = prettyShow prog 0
 
 main :: IO ()
 main = do
@@ -12,14 +17,14 @@ main = do
     case args of
         []     -> interactive
         [file] -> fromFile file
-        _      -> error "expected a single file." 
+        _      -> error "expected a single file."
 
 
 fromFile :: String -> IO ()
-fromFile file = do 
+fromFile file = do
     result <- fmap (parseBonsai file) (readFile file)
     putStrLn (prettify result)
-    
+
 data UserAction = RunUser String
                 | ExitUser
                 | PrettifyUser String
