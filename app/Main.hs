@@ -64,11 +64,12 @@ interactive = do
             putStrLn $ "ERROR: " ++ err ++ "\n"
             interactive
         RunUser input      -> do
-            putStrLn $ prettify ((parseBonsai "<stdin>") input)
+            putStrLn $ prettify (parse input)
             interactive
         PrettifyUser input -> do
-            putStrLn $ prettify ((parseBonsai "<stdin>") input)
+            putStrLn $ prettify (parse input)
             interactive
+    where parse = parseBonsai "<stdin>"
 
 -- prompts the user for a line in stdin
 -- and returns the result
