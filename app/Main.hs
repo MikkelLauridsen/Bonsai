@@ -6,10 +6,16 @@ import Ast
 import Prettifier
 import System.IO
 
+-- prettify formats the result of parsing a given file
+-- if the result is an error message, it is returned
+-- if the result is an AST, it is formatted to conform to Bonsai's abstract syntax
 prettify :: Either String ProgAST -> String
 prettify (Left err) = err
 prettify (Right prog) = prettyShow prog 0
 
+-- main starts the interactive interpreter,
+-- interprets a file or outputs an error message
+-- based on program arguments
 main :: IO ()
 main = do
     args <- getArgs
@@ -18,30 +24,45 @@ main = do
         [file] -> fromFile file
         _      -> error "expected a single file."
 
-
+-- fromFile tries to read the file at input path
+-- and interprets it on success
 fromFile :: String -> IO ()
 fromFile file = do
     result <- fmap (parseBonsai file) (readFile file)
     putStrLn (prettify result)
 
+-- UserAction is used by the interactive interpreter to specify user actions,
+-- such as interpreting or prettifying the user's input
 data UserAction = RunUser String
                 | ExitUser
                 | PrettifyUser String
+                | ErrorUser String
 
-getSource :: String -> IO UserAction
+-- getSource recursively chooses a UserAction
+-- based stdin input
+getSource :: [String] -> IO UserAction
 getSource current = do
     line <- cmdPrompt
     case line of
         "@EXIT"     -> return ExitUser
-        "@RUN"      -> return $ RunUser current
-        "@PRETTIFY" -> return $ PrettifyUser current
-        _           -> getSource $ current ++ line
+        "@RUN"      -> return $ RunUser (current >>= (++ ""))
+        "@PRETTIFY" -> return $ PrettifyUser (current >>= (++ ""))
+        "@RESET"    -> getSource []
+        "@UNDO"     -> case current of
+                            [] -> return $ ErrorUser "cannot delete an empty string"
+                            _  -> getSource $ init current
+        _           -> getSource $ current ++ [line]
 
+-- interactive recursively interprets or pretty prints user input
+-- until an ExitUser UserAction is returned by getSource
 interactive :: IO ()
 interactive = do
-    res <- getSource ""
+    res <- getSource []
     case res of
-        ExitUser           -> putStrLn "Aborting.."
+        ExitUser           -> putStrLn "\n"
+        ErrorUser err      -> do 
+            putStrLn $ "ERROR: " ++ err ++ "\n"
+            interactive
         RunUser input      -> do
             putStrLn $ prettify ((parseBonsai "<stdin>") input)
             interactive
@@ -49,7 +70,8 @@ interactive = do
             putStrLn $ prettify ((parseBonsai "<stdin>") input)
             interactive
 
-
+-- prompts the user for a line in stdin
+-- and returns the result
 cmdPrompt :: IO String
 cmdPrompt = do
     putStr "; "

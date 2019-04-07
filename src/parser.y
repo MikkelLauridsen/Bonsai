@@ -1,6 +1,5 @@
 {
 
-{-# OPTIONS -w #-}
 module Parser (parseBonsai) where
 
 import Lexer
@@ -9,14 +8,14 @@ import Ast
 
 }
 
-%name parse
-%tokentype { Token }
-%monad { Alex }
-%lexer { lexwrap } { Token _ EOFToken }
-%errorhandlertype explist
-%error { parseError }
+%name parse  -- name of parse function
+%tokentype { Token } -- return type of specified lexer (Token AlexPosn Terminal)
+%monad { Alex } -- monad type of monadic lexer
+%lexer { lexwrap } { Token _ EOFToken } -- lexer function and EOF token
+%errorhandlertype explist -- use error handler with [String] of expected Tokens on failure
+%error { parseError } -- error handler function
 
-%token
+%token -- terminals of Bonsai grammar. { CONTENT } CONTENT denotes the value of a given terminal 
     var       { Token _ VarToken}
     let       { Token _ LetToken }
     in        { Token _ InToken }
@@ -50,7 +49,10 @@ import Ast
 
 %%
 
--- Start grammar
+-- Grammar variables and associated production rules 
+-- Semantic actions of a given rule is specified in { }
+-- Semantic actions are used to construct an abstract syntax tree
+-- $i denotes "value of term i" in the corresponding production
 
 Prog    : Type_decs Var_decs                         { ProgAST $1 $2 }
 
@@ -172,19 +174,23 @@ Tuple_body  : Tuple_body ',' Expr                    { $1 ++ [$3] }
 List_body   :                                        { [] }
             | Tuple_body                             { $1 }
 
---end grammar
+-- end grammar
 
 {
 
 lexwrap :: (Token -> Alex a) -> Alex a
 lexwrap = (alexMonadScan' >>=)
 
+-- parseError is called when no production rule can handle the current token
+-- calls the lexer handleError function with a parser error message
 parseError :: (Token, [String]) -> Alex a
 parseError ((Token pos token), expected) = do
         line <- getCurrentLine
         (_, offset) <- getLineNumber
         handleError pos (getErrorMessage pos line token expected offset)
 
+-- getErrorMessage returns an error message showcasing the position of the current token,
+-- as well as all token types that would have been legal
 getErrorMessage :: AlexPosn -> String -> Terminal -> [String] -> Int -> String
 getErrorMessage (AlexPn _ _ column) line current expected offset = 
         "unexpected token '" ++ 
@@ -196,6 +202,7 @@ getErrorMessage (AlexPn _ _ column) line current expected offset =
         "\n  " ++
         handleExpected expected
 
+-- handleExpected recursively constructs a string of comma separated token names in input list
 handleExpected :: [String] -> String
 handleExpected expected = "expected: " ++
         case map convertWord expected of
@@ -204,6 +211,7 @@ handleExpected expected = "expected: " ++
             [s2, s1] -> s1 ++ " or " ++ s2 ++ "\n"
             (s:ss)   -> (reverse ss >>= (++ ", ")) ++ s ++ "\n" 
 
+-- convertWord formats a selected few possible token names to a more pleasant format
 convertWord :: String -> String
 convertWord "unary_op" = "a unary operator"
 convertWord "var_id" = "a variable name"
@@ -218,11 +226,14 @@ convertWord "match" = "a match expression"
 convertWord "let" = "a let expression"
 convertWord string = string
 
+-- getErrorIndicator returns a string of the format ' ' * num + '^' * length
+-- it is used to indicate the position and length of a token in a given string
 getErrorIndicator :: Int -> Int -> String
-getErrorIndicator num length
-        | num <= 0  = take length (repeat '^')
-        | otherwise = ' ':(getErrorIndicator (num - 1) length)
+getErrorIndicator num length = take num (repeat ' ') ++ take length (repeat '^')
 
+-- parseBonsai is the finished monadic lexer/parser driven by Alex
+-- it takes a filepath which is used to specify which file is responsible for given errors
+-- also takes a string which will be scanned and parsed
 parseBonsai :: FilePath -> String -> Either String ProgAST
 parseBonsai = runAlex' parse
 
