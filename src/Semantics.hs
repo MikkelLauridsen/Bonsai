@@ -8,8 +8,8 @@ import Data.Set as Set
 
 type Sort = String
 
-data Signature = ConstSig TypeId
-               | FuncSig Sort TypeId
+data Signature = ConstSig TypeId -- TODO: should probably change this to Sort
+               | FuncSig Sort TypeId -- TODO: should probably change this to Sort Sort
                deriving (Eq, Ord)
 
 type TermConstructor = (TypeId, Signature)
