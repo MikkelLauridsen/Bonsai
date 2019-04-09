@@ -21,18 +21,21 @@ import Control.Monad (liftM)
 
 %wrapper "monadUserState"
 
+-- character groups for regular expressions
 $digit   = 0-9
 $lower   = [a-z]
 $upper   = [A-Z]
 $alpha   = [a-zA-Z]
 $regchar = [\x20-\x7E] # \\
-$spechar = [t b n r f \' \" \\]
-$stringb = $printable # \"
+$spechar = [t b n r f \' \" \\] --escapable characters"
 
+-- token rules: regular expressions used to identify tokens or change the lexer state.
+-- <N> denotes state N, where <0> is the initial state.
+-- only token rules associated with the current lexer state will be evaluated.
 tokens :-
 
-<0>            $white+                                                         ;
-<0>            \#.*                                                            ;
+<0>            $white+                                                         ; -- ignore whitespace
+<0>            \#.*                                                            ; -- ignore comments
 <0>            var                                                             { lex' VarToken}
 <0>            let                                                             { lex' LetToken}
 <0>            in                                                              { lex' InToken}
@@ -74,24 +77,28 @@ tokens :-
 <0>            \:                                                              { lex LevelThreeOpToken}
 <0>            \!                                                              { lex UnaryOpToken}
 <0>            \~                                                              { lex UnaryOpToken}
-<0>            \"                                                              { enterString `andBegin` state_string}
-<0>            \'                                                              { enterChar `andBegin` state_char}
-<state_string> \"                                                              { finishString `andBegin` state_default}
+<0>            \"                                                              { enterString `andBegin` state_string} --" switch to the string state
+<0>            \'                                                              { enterChar `andBegin` state_char} -- switch to the char state
+-- token rules associated with string state
+<state_string> \"                                                              { finishString `andBegin` state_default} -- finish string on "
 <state_string> \\$spechar                                                      { addToString}
 <state_string> $regchar                                                        { addToString}
-<state_string> \n                                                              { specialError newlineError} 
-<state_string> \\                                                              { specialError illegalEscapeError}
-<state_char>   \'                                                              { finishChar `andBegin` state_default}
+<state_string> \n                                                              { specialError newlineError} -- report error on string split on multiple lines
+<state_string> \\                                                              { specialError illegalEscapeError} -- report error on unescaped \
+-- token rules associated with char state
+<state_char>   \'                                                              { finishChar `andBegin` state_default} -- finish char on '
 <state_char>   $regchar                                                        { addToChar}
 <state_char>   \\$spechar                                                      { addToChar}
-<state_char>   \n                                                              { specialError newlineError} 
-<state_char>   \\                                                              { specialError illegalEscapeError}
+<state_char>   \n                                                              { specialError newlineError} -- report error on char split on multiple lines
+<state_char>   \\                                                              { specialError illegalEscapeError} -- report error on unescaped \
 
+-- end of token rules
 {
--- ensures correct HS color coding: "
 
+-- alias for default lexer state
 state_default = 0
 
+-- terminals (tokens) used by the lexer
 data Terminal = 
     VarToken                 |
     LetToken                 |
