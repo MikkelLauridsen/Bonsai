@@ -33,6 +33,7 @@ library
       Ast
       Actions
       Prettifier
+      Semantics
   other-modules:
       Paths_p4
   hs-source-dirs:
