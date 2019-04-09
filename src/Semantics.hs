@@ -42,10 +42,11 @@ interpret :: ProgAST -> IO ()
 interpret (ProgAST dt dv) = do
     sigma <- typeDcl dt (Map.empty)
     env <- varDcl dv (Set.empty) sigma
-    expr main world env sigma
-
+    case main of
+        (Just var) -> prog var world env sigma
+        None       -> putStrLn "error: main is not defined" -- TODO: use Alex handledError ..
     where
-        main = VarId "main"
+        main = env `getVar` (VarId "main")
         world = -- TODO!
 
 typeDcl :: [TypeDclAST] -> Env -> IO Sig
@@ -54,5 +55,5 @@ typeDcl :: [TypeDclAST] -> Env -> IO Sig
 varDcl :: [VarDclAST] -> Env -> Sig -> IO Env
 -- TODO!
 
-expr :: ExprAST -> ExprAST -> Env -> Sig -> IO Values
+prog :: Values -> Values -> Env -> Sig -> IO Values
 -- TODO!
