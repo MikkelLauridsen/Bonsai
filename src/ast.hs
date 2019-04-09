@@ -13,8 +13,8 @@ module Ast
     , ConstAST(..)
     ) where
 
-data TypeId = TypeId { typeName::String } deriving Show
-data VarId = VarId { varName::String } deriving Show
+data TypeId = TypeId { typeName::String } deriving (Show, Eq, Ord)
+data VarId = VarId { varName::String } deriving (Show, Eq, Ord)
 
 data ProgAST = ProgAST [TypeDclAST] [VarDclAST] deriving Show
 
