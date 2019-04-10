@@ -1,5 +1,5 @@
 module Semantics
-    (
+    ( interpret
     ) where
 
 import Ast

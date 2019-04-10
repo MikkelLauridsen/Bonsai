@@ -4,6 +4,7 @@ import System.Environment (getArgs)
 import Parser (parseBonsai)
 import Ast
 import Prettifier
+import Semantics
 import System.IO
 
 -- prettify formats the result of parsing a given file
@@ -29,7 +30,7 @@ main = do
 fromFile :: String -> IO ()
 fromFile file = do
     result <- fmap (parseBonsai file) (readFile file)
-    putStrLn (prettify result)
+    runInterpret result
 
 -- UserAction is used by the interactive interpreter to specify user actions,
 -- such as interpreting or prettifying the user's input
@@ -60,16 +61,20 @@ interactive = do
     res <- getSource []
     case res of
         ExitUser           -> putStrLn "\n"
-        ErrorUser err      -> do 
+        ErrorUser err      -> do
             putStrLn $ "ERROR: " ++ err ++ "\n"
             interactive
         RunUser input      -> do
-            putStrLn $ prettify (parse input)
+            runInterpret (parse input)
             interactive
         PrettifyUser input -> do
             putStrLn $ prettify (parse input)
             interactive
     where parse = parseBonsai "<stdin>"
+
+runInterpret :: Either String ProgAST -> IO ()
+runInterpret (Left err) = putStrLn err
+runInterpret (Right ast) = interpret ast
 
 -- prompts the user for a line in stdin
 -- and returns the result
