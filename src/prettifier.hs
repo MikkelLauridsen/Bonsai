@@ -20,10 +20,8 @@ instance PrettyShow VarId where
 
 instance PrettyShow ProgAST where
     prettyShow (ProgAST types vars) ic = 
-        "#Type declarations:\n" ++              --Kan fjernes
-        prettyShowList types ic "\n\n" ++ "\n\n" ++ 
-        "#Variable declarations:\n" ++          --Kan fjernes
-        prettyShowList vars ic "\n"
+        prettyShow types ic ++
+        prettyShow vars ic
         
 instance PrettyShow CompTypeAST where
     prettyShow (CompSimpleAST typeId) ic = prettyShow typeId ic
@@ -36,9 +34,11 @@ instance PrettyShow TypeVarAST where
     prettyShow (TypedVarAST varId compType) ic = prettyShow varId ic ++ "::" ++ prettyShow compType ic
 
 instance PrettyShow TypeDclAST where
-    prettyShow (TypeDclAST typeId cons) ic =  
-        indent ic ++ "type " ++ prettyShow typeId ic ++ " = {\n" ++ prettyShowList cons (ic + 1) "" ++
-        indent ic ++ "}"
+    prettyShow (TypeDclAST typeId cons rest) ic = 
+        indent ic ++ "type " ++ prettyShow typeId ic ++ " = {\n" ++ prettyShowList cons (ic + 1) "" ++ 
+        indent ic ++ "}\n" ++
+        "\n" ++ prettyShow rest ic
+    prettyShow (EpsTypeDclAST) ic = ""
 
 instance PrettyShow ConsAST where
     prettyShow (SingleConsAST typeId) ic = 
@@ -47,8 +47,10 @@ instance PrettyShow ConsAST where
         indent ic ++ "| " ++ prettyShow typeId ic ++ " " ++ prettyShow compType ic ++ "\n"
 
 instance PrettyShow VarDclAST where
-    prettyShow (VarDclAST typeVar expr) ic = 
-        indent ic ++ "var " ++ prettyShow typeVar ic ++ " = " ++ prettyShow expr ic
+    prettyShow (VarDclAST typeVar expr rest) ic = 
+        indent ic ++ "var " ++ prettyShow typeVar ic ++ " = " ++ prettyShow expr ic ++
+        "\n" ++ prettyShow rest ic
+    prettyShow (EpsVarDclAST) ic = ""
 
 instance PrettyShow PredAST where
     prettyShow (PredExprAST expr) ic = prettyShow expr ic

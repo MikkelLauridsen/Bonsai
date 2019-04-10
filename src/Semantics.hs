@@ -19,6 +19,7 @@ type Sig = Set TermConstructor
 data Values = ConstValue ConstAST
             | ClosureValue VarId ExprAST Env Sig
             | RecClosureValue VarId VarId ExprAST Env Sig
+            | SystemValue Integer --TODO: add Files, tuples and lists
 
 sortsType :: TypeId -> Sort
 sortsType typeId = typeName typeId
@@ -32,31 +33,51 @@ sorts (CompFuncAST comp1' comp2') = sorts comp1' ++ "->" ++ sorts comp2'
 except :: Env -> (VarId, Values) -> Env
 except env (var, value) = Map.insertWith const var value env
 
-union :: Sig -> Sig -> Sig
-union sigma1 sigma2 = Set.union sigma1 sigma2
+unionSig :: Sig -> Sig -> Sig
+unionSig sigma1 sigma2 = Set.union sigma1 sigma2
 
 getVar :: Env -> VarId -> Maybe Values
 getVar env var = Map.lookup var env
 
 member :: TermConstructor -> Sig -> Bool
-member termCon sigma = Set.Member termCon sigma
+member termCon sigma = Set.member termCon sigma
+
+evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
+evaluateTermCons SingleConsAST t typeId          = (t, ConstSig (sortsType typeId))
+evaluateTermCons DoubleConsAST t compType typeId = (t, FuncSig (sorts compType) (sortsType typeId))
 
 interpret :: ProgAST -> IO ()
 interpret (ProgAST dt dv) = do
-    sigma <- typeDcl dt (Map.empty)
-    env <- varDcl dv (Set.empty) sigma
-    case main of
-        (Just var) -> prog var world env sigma
-        None       -> putStrLn "error: main is not defined" -- TODO: use Alex handledError ..
+    sigma <- evalTypeDcl dt (Set.empty)
+    env <- evalVarDcl dv (Map.empty) sigma
+    case maybeMain of
+        (Just main) -> evalExpr main env' sigma
+        Nothing    -> putStrLn "error: main is not defined" -- TODO: use Alex handledError ..
     where
-        main = env `getVar` (VarId "main")
-        world = -- TODO!
+        maybeMain = env `getVar` (VarId "main")
+        env' = env `except` (VarId "system", SystemValue 0)
 
-typeDcl :: [TypeDclAST] -> Env -> IO Sig
--- TODO!
+evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
+evalTypeDcl dt sigma = do
+    case dt of
+        TypeDclAST typeId cons dt' -> do
+            sigma' <- evalTypeDcl dt' sigma
+            return $ sigma' `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons]) 
+        EpsTypeDclAST              -> return sigma
 
-varDcl :: [VarDclAST] -> Env -> Sig -> IO Env
--- TODO!
+evalVarDcl :: VarDclAST -> Env -> Sig -> IO Env
+evalVarDcl dv env sigma = do
+    case dv of
+        VarDclAST xt expr dv' -> do
+            env' <- evalVarDcl dv' env sigma
+            value <- evalExpr expr env sigma
+            return $ env' `except` (x, value)
+        EpsVarDclAST          -> return env
+    where
+        x = case xt of
+                UntypedVarAST varId -> varId
+                TypedVarAST varId _ -> varId
 
-prog :: Values -> Values -> Env -> Sig -> IO Values
--- TODO!
+evalExpr :: ExprAST -> Env -> Sig -> IO Values
+evalExpr expr env sigma = do
+    --TODO!

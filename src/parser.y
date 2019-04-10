@@ -54,14 +54,12 @@ import Ast
 -- Semantic actions are used to construct an abstract syntax tree
 -- $i denotes "value of term i" in the corresponding production
 
-Prog    : Type_decs Var_decs                         { ProgAST $1 $2 }
+Prog    : Type_dec Var_dec                           { ProgAST $1 $2 }
 
 -- Types
 
-Type_decs   :                                        { [] }
-            | Type_decs Type_dec                     { $1 ++ [$2] }
-
-Type_dec    : type type_id '=' '{' Cons_list '}'     { TypeDclAST (TypeId $2) $5 }
+Type_dec    :                                             { EpsTypeDclAST }
+            | type type_id '=' '{' Cons_list '}' Type_dec { TypeDclAST (TypeId $2) $5 $7 }
 
 Cons_list   : Cons_list Cons                         { $1 ++ [$2] }
             | Cons                                   { [$1] }
@@ -81,10 +79,8 @@ Type_spec   : '::' Comp_type                         { $2 }
 
 -- Variable declarations
 
-Var_decs    :                                        { [] }
-            | Var_decs Var_dec                       { $1 ++ [$2] }
-
-Var_dec     : var Typed_var '=' Expr                 { VarDclAST $2 $4 }
+Var_dec     :                                        { EpsVarDclAST }
+            | var Typed_var '=' Expr Var_dec         { VarDclAST $2 $4 $5 }
 
 -- Control structures
 

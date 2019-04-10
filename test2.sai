@@ -84,4 +84,4 @@ var matchtest = x => {
     }
 }
 
-var main = matchtest (1, (2, 3))
+var main = (system) => { matchtest (1, (2, 3)) }

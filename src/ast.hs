@@ -16,7 +16,7 @@ module Ast
 data TypeId = TypeId { typeName::String } deriving (Show, Eq, Ord)
 data VarId = VarId { varName::String } deriving (Show, Eq, Ord)
 
-data ProgAST = ProgAST [TypeDclAST] [VarDclAST] deriving Show
+data ProgAST = ProgAST TypeDclAST VarDclAST deriving Show
 
 data CompTypeAST = CompSimpleAST TypeId
                  | CompListAST CompTypeAST
@@ -28,13 +28,17 @@ data TypeVarAST = UntypedVarAST VarId
                 | TypedVarAST VarId CompTypeAST
                 deriving Show
 
-data TypeDclAST = TypeDclAST TypeId [ConsAST] deriving Show
+data TypeDclAST = TypeDclAST TypeId [ConsAST] TypeDclAST
+                | EpsTypeDclAST 
+                deriving Show
 
 data ConsAST = SingleConsAST TypeId
              | DoubleConsAST TypeId CompTypeAST
              deriving Show
 
-data VarDclAST = VarDclAST TypeVarAST ExprAST deriving Show
+data VarDclAST = VarDclAST TypeVarAST ExprAST VarDclAST
+               | EpsVarDclAST 
+               deriving Show
 
 data PredAST = PredExprAST ExprAST
              | PredWildAST
