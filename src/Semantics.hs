@@ -8,8 +8,8 @@ import Data.Set as Set
 
 type Sort = String
 
-data Signature = ConstSig TypeId -- TODO: should probably change this to Sort
-               | FuncSig Sort TypeId -- TODO: should probably change this to Sort Sort
+data Signature = ConstSig Sort
+               | FuncSig Sort Sort
                deriving (Eq, Ord)
 
 type TermConstructor = (TypeId, Signature)
@@ -20,8 +20,11 @@ data Values = ConstValue ConstAST
             | ClosureValue VarId ExprAST Env Sig
             | RecClosureValue VarId VarId ExprAST Env Sig
 
+sortsType :: TypeId -> Sort
+sortsType typeId = typeName typeId
+
 sorts :: CompTypeAST -> Sort
-sorts (CompSimpleAST typeId) = typeName typeId
+sorts (CompSimpleAST typeId) = sortsType typeId
 sorts (CompListAST comp') = "[" ++ sorts comp' ++ "]"
 sorts (CompTupleAST comps') = "(" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ")"
 sorts (CompFuncAST comp1' comp2') = sorts comp1' ++ "->" ++ sorts comp2'
