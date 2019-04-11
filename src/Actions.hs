@@ -6,6 +6,8 @@ module Actions
     , convert_two_op
     , convert_three_op
     , convert_unary_op
+    , convert_io_op
+    , handle_paren
     ) where
 
 import Ast
@@ -35,6 +37,12 @@ func_left_expr []     = error "Cannot apply a function to zero arguments."
 func_left_expr [expr] = expr
 func_left_expr (x:xs) = FunAppExprAST x (func_left_expr xs)
 
+--rule Lit_expr: 6
+handle_paren :: [ExprAST] -> ExprAST
+handle_paren []       = error "Bonsai does not allow use of the unit type."
+handle_paren [single] = ParenExprAST single
+handle_paren multiple = TupleExprAST multiple
+
 convert_one_op :: String -> ConstAST
 convert_one_op "+"  = PlusConstAST
 convert_one_op "-"  = MinusConstAST
@@ -62,3 +70,9 @@ convert_unary_op :: String -> ConstAST
 convert_unary_op "!" = NotConstAST
 convert_unary_op "~" = UnaryMinusConstAST
 convert_unary_op _   = error "undefined operator."
+
+convert_io_op :: String -> ConstAST
+convert_io_op "open" = OpenConstAST
+convert_io_op "close" = CloseConstAST
+convert_io_op "read" = ReadConstAST
+convert_io_op "write" = WriteConstAST

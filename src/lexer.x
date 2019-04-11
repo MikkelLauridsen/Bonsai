@@ -77,6 +77,10 @@ tokens :-
 <0>            \:                                                              { lex LevelThreeOpToken}
 <0>            \!                                                              { lex UnaryOpToken}
 <0>            \~                                                              { lex UnaryOpToken}
+<0>            open                                                            { lex IOToken }
+<0>            close                                                           { lex IOToken }
+<0>            read                                                            { lex IOToken }
+<0>            write                                                           { lex IOToken }
 <0>            \"                                                              { enterString `andBegin` state_string} --" switch to the string state
 <0>            \'                                                              { enterChar `andBegin` state_char} -- switch to the char state
 -- token rules associated with string state
@@ -130,6 +134,7 @@ data Terminal =
     LevelTwoOpToken String   |
     LevelThreeOpToken String |
     UnaryOpToken String      |
+    IOToken String           |
     EOFToken
     deriving (Eq, Show)
 
@@ -273,6 +278,7 @@ terminalString (LevelOneOpToken string)   = string
 terminalString (LevelTwoOpToken string)   = string
 terminalString (LevelThreeOpToken string) = string
 terminalString (UnaryOpToken string)      = string
+terminalString (IOToken string)           = string
 terminalString EOFToken                   = "$"
 
 -- actions

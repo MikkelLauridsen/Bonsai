@@ -64,7 +64,7 @@ instance PrettyShow ExprAST where
     --  (...)
     prettyShow (ParenExprAST expr) ic = "(" ++ prettyShow expr ic ++ ")"
     --  (...) => {...}
-    prettyShow (LambdaExprAST typeVar expr) ic = "(" ++ prettyShow typeVar ic ++ ") => {" ++ 
+    prettyShow (LambdaExprAST varId expr) ic = "(" ++ prettyShow varId ic ++ ") => {" ++ 
         indent ic ++ prettyShow expr (ic + 1) ++
         indent ic ++ "}" 
     --  expr1 expr2
@@ -140,3 +140,7 @@ instance PrettyShow ConstAST where
     prettyShow (ConcatenateConstAST) ic = "++"
     prettyShow (AndConstAST) ic = "&&"
     prettyShow (OrConstAST) ic = "||"
+    prettyShow (OpenConstAST) ic = "open"
+    prettyShow (CloseConstAST) ic = "close"
+    prettyShow (ReadConstAST) ic = "read"
+    prettyShow (WriteConstAST) ic = "write"

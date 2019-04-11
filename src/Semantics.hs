@@ -17,9 +17,12 @@ type Env = Map VarId Values
 type Sig = Set TermConstructor
 
 data Values = ConstValue ConstAST
+            | TerValue TypeId
             | ClosureValue VarId ExprAST Env Sig
             | RecClosureValue VarId VarId ExprAST Env Sig
             | SystemValue Integer --TODO: add Files, tuples and lists
+            | TupleValue [Values]
+            | ListValue [Values]
 
 sortsType :: TypeId -> Sort
 sortsType typeId = typeName typeId
@@ -43,41 +46,51 @@ member :: TermConstructor -> Sig -> Bool
 member termCon sigma = Set.member termCon sigma
 
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
-evaluateTermCons SingleConsAST t typeId          = (t, ConstSig (sortsType typeId))
-evaluateTermCons DoubleConsAST t compType typeId = (t, FuncSig (sorts compType) (sortsType typeId))
+evaluateTermCons (SingleConsAST t) typeId          = (t, ConstSig (sortsType typeId))
+evaluateTermCons (DoubleConsAST t compType) typeId = (t, FuncSig (sorts compType) (sortsType typeId))
 
 interpret :: ProgAST -> IO ()
 interpret (ProgAST dt dv) = do
     sigma <- evalTypeDcl dt (Set.empty)
     env <- evalVarDcl dv (Map.empty) sigma
-    case maybeMain of
-        (Just main) -> evalExpr main env' sigma
-        Nothing    -> putStrLn "error: main is not defined" -- TODO: use Alex handledError ..
-    where
-        maybeMain = env `getVar` (VarId "main")
-        env' = env `except` (VarId "system", SystemValue 0)
+    let maybeMain = env `getVar` (VarId "main")
+      in case maybeMain of
+            Nothing     -> putStrLn "error: main is not defined" -- TODO: use Alex handledError ..
+            (Just main) -> let env' = env `except` (VarId "system", SystemValue 0)
+                             in evalExpr main env' sigma
 
 evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
 evalTypeDcl dt sigma = do
     case dt of
+        EpsTypeDclAST              -> return sigma
         TypeDclAST typeId cons dt' -> do
             sigma' <- evalTypeDcl dt' sigma
             return $ sigma' `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons]) 
-        EpsTypeDclAST              -> return sigma
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO Env
 evalVarDcl dv env sigma = do
     case dv of
+        EpsVarDclAST          -> return env
         VarDclAST xt expr dv' -> do
             env' <- evalVarDcl dv' env sigma
             value <- evalExpr expr env sigma
-            return $ env' `except` (x, value)
-        EpsVarDclAST          -> return env
-    where
-        x = case xt of
-                UntypedVarAST varId -> varId
-                TypedVarAST varId _ -> varId
+            return $ env' `except` (x, value) 
+            where 
+                x = case xt of
+                    UntypedVarAST varId -> varId
+                    TypedVarAST varId _ -> varId
 
 evalExpr :: ExprAST -> Env -> Sig -> IO Values
 evalExpr expr env sigma = do
-    --TODO!
+    case expr of
+        (VarExprAST varId)            -> evalVarExpr varId env sigma
+        (TypeExprAST typeId)          -> return $ TerValue typeId
+        (ConstExprAST const)          -> return $ ConstValue const
+        (ParenExprAST expr')          -> evalExpr expr' env sigma
+        (LambdaExprAST varId expr')   -> return $ ClosureValue varId expr' env sigma
+        (FunAppExprAST expr1 expr2)   -> evalFunApp expr1 expr2 env sigma
+        (TupleExprAST exprs)          -> evalTuple exprs env sigma
+        (ListExprAST exprs)           -> evalList exprs env sigma
+        (MatchExprAST expr' branches) -> evalMatch expr' branches env sigma
+        (CaseExprAST branches)        -> evalCase branches env sigma
+        (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma

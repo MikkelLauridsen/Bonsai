@@ -48,7 +48,7 @@ data ExprAST = VarExprAST VarId
              | TypeExprAST TypeId
              | ConstExprAST ConstAST
              | ParenExprAST ExprAST
-             | LambdaExprAST TypeVarAST ExprAST
+             | LambdaExprAST VarId ExprAST
              | FunAppExprAST ExprAST ExprAST
              | TupleExprAST [ExprAST]
              | ListExprAST [ExprAST]
@@ -88,4 +88,8 @@ data ConstAST = IntConstAST Int
               | ConcatenateConstAST
               | AndConstAST
               | OrConstAST
+              | OpenConstAST
+              | CloseConstAST
+              | ReadConstAST
+              | WriteConstAST
               deriving Show

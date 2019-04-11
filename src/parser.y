@@ -46,6 +46,7 @@ import Ast
     two_op    { Token _ (LevelTwoOpToken $$) }
     three_op  { Token _ (LevelThreeOpToken $$) }
     unary_op  { Token _ (UnaryOpToken $$) }
+    io_op     { Token _ (IOToken $$) }
 
 %%
 
@@ -116,6 +117,12 @@ Literal     : string                                 { StringConstAST $1 }
             | float                                  { FloatConstAST $1 }
             | bool                                   { BoolConstAST $1 }
 
+ConstFun    : one_op                                 { convert_one_op $1 }
+            | two_op                                 { convert_two_op $1 }
+            | three_op                               { convert_three_op $1 }
+            | unary_op                               { convert_unary_op $1 }
+            | io_op                                  { convert_io_op $1 }
+
 -- Patterns
 
 Pattern     : Struc_pat                              { $1 }
@@ -159,10 +166,11 @@ Lit_expr    : Lambda                                 { $1 }
             | Literal                                { ConstExprAST $1 }
             | type_id                                { TypeExprAST (TypeId $1) }
             | var_id                                 { VarExprAST (VarId $1) }
-            | '(' Tuple_body ')'                     { TupleExprAST $2 }
+            | ConstFun                               { ConstExprAST $1 }
+            | '(' Tuple_body ')'                     { handle_paren $2 }
             | '[' List_body ']'                      { ListExprAST $2 }
 
-Lambda      : Typed_var '=>' '{' Expr '}'            { LambdaExprAST $1 $4 }
+Lambda      : var_id '=>' '{' Expr '}'               { LambdaExprAST (VarId $1) $4 }
 
 Tuple_body  : Tuple_body ',' Expr                    { $1 ++ [$3] }
             | Expr                                   { [$1] }
