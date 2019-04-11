@@ -60,7 +60,7 @@ interpret (ProgAST dt dv) = do
                              in evalExpr main env' sigma
 
 evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
-evalTypeDcl dt sigma = do
+evalTypeDcl dt sigma =
     case dt of
         EpsTypeDclAST              -> return sigma
         TypeDclAST typeId cons dt' -> do
@@ -68,7 +68,7 @@ evalTypeDcl dt sigma = do
             return $ sigma' `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons]) 
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO Env
-evalVarDcl dv env sigma = do
+evalVarDcl dv env sigma =
     case dv of
         EpsVarDclAST          -> return env
         VarDclAST xt expr dv' -> do
@@ -94,3 +94,30 @@ evalExpr expr env sigma = do
         (MatchExprAST expr' branches) -> evalMatch expr' branches env sigma
         (CaseExprAST branches)        -> evalCase branches env sigma
         (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma
+
+evalVarExpr :: VarId -> Env -> Sig -> IO Values
+evalVarExpr varId env sigma =
+    case maybeValue of
+        Nothing      -> error "error: variable '" ++ varName varId ++ "' is out of scope." -- TODO! (consider Either?)
+        (Just value) -> return value
+    where
+        maybeValue = env `getVar` varId
+
+evalTuple :: [ExprAST] -> Env -> Sig -> IO Values
+evalTuple exprs env sigma = do
+    body <- evalExprs exprs env sigma
+    return $ TupleValue body
+
+evalList :: [ExprAST] -> Env -> Sig -> IO Values
+evalList exprs env sigma = do
+    body <- evalExprs exprs env sigma
+    return $ ListValue body
+
+evalExprs :: [ExprAST] -> Env -> Sig -> IO [Values]
+evalExprs [] _ _           = return []
+evalExprs (e:es) env sigma = do 
+    value <- evalExpr e env sigma
+    values <- evalExprs es env sigma
+    return (value:values)
+
+evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO Values
