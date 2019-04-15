@@ -42,8 +42,8 @@ unionSig sigma1 sigma2 = Set.union sigma1 sigma2
 getVar :: Env -> VarId -> Maybe Values
 getVar env var = Map.lookup var env
 
-member :: TermConstructor -> Sig -> Bool
-member termCon sigma = Set.member termCon sigma
+memberSig :: TermConstructor -> Sig -> Bool
+memberSig termCon sigma = Set.member termCon sigma
 
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
 evaluateTermCons (SingleConsAST t) typeId          = (t, ConstSig (sortsType typeId))
@@ -77,8 +77,8 @@ evalVarDcl dv env sigma =
             return $ env' `except` (x, value) 
             where 
                 x = case xt of
-                    UntypedVarAST varId -> varId
-                    TypedVarAST varId _ -> varId
+                        UntypedVarAST varId -> varId
+                        TypedVarAST varId _ -> varId
 
 evalExpr :: ExprAST -> Env -> Sig -> IO Values
 evalExpr expr env sigma = do
