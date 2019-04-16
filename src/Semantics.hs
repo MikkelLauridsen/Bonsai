@@ -110,7 +110,7 @@ evalExpr expr env sigma = do
     case expr of
         (VarExprAST varId)            -> evalVarExpr varId env sigma
         (TypeExprAST typeId)          -> return $ TerValue typeId
-        (ConstExprAST const)          -> return $ ConstValue const
+        (ConstExprAST c)          -> return $ ConstValue c
         (ParenExprAST expr')          -> evalExpr expr' env sigma
         (LambdaExprAST varId expr')   -> return $ ClosureValue varId expr' env sigma
         (FunAppExprAST expr1 expr2)   -> evalFunApp expr1 expr2 env sigma
