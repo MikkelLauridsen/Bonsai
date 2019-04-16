@@ -28,7 +28,8 @@ data Values = ConstValue ConstAST
             | ClosureValue VarId ExprAST Env Sig
             | RecClosureValue VarId VarId ExprAST Env Sig
             | SystemValue Integer
-            | FileValue Handle
+            | FileValue Handle Integer
+            | PredefinedFileValue String Integer
             | TupleValue [Values]
             | ListValue [Values]
             | PartialValue (Values -> IO Values)
@@ -72,12 +73,16 @@ evaluateTermCons (DoubleConsAST t compType) typeId = (t, FuncSig (sorts compType
 interpret :: ProgAST -> IO Values
 interpret (ProgAST dt dv) = do
     sigma <- evalTypeDcl dt (Set.empty)
-    env <- evalVarDcl dv (Map.empty) sigma
+    env <- evalVarDcl dv initEnv sigma
     let (maybeMain) = env `getVar` (VarId "main")
       in case maybeMain of
             Nothing -> error "error: main is not defined"
-            (Just (ClosureValue x e env2 sigma2)) -> let env' = env2 `except` (VarId "system", SystemValue 0)
+            (Just (ClosureValue x e env2 sigma2)) -> let env' = env2 `except` (x, SystemValue 0)
                              in evalExpr e env' sigma2
+    where
+        stdin' = PredefinedFileValue "stdin" 0
+        stdout' = PredefinedFileValue "stdout" 0
+        initEnv = Map.fromList [(VarId "stdin", stdin'), (VarId "stdout", stdout')] 
 
 evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
 evalTypeDcl dt sigma =
