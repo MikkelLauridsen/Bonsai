@@ -5,6 +5,8 @@ module Semantics
 import Ast
 import Data.Map.Strict as Map
 import Data.Set as Set
+import System.IO
+import System.Directory
 
 type Sort = String
 
@@ -16,13 +18,87 @@ type TermConstructor = (TypeId, Signature)
 type Env = Map VarId Values
 type Sig = Set TermConstructor
 
+stringFromValuesList :: [Values] -> String
+stringFromValuesList [] = []
+stringFromValuesList ((ConstValue (CharConstAST chr)):xs) = [chr] ++ stringFromValuesList xs
+
 data Values = ConstValue ConstAST
             | TerValue TypeId
             | ClosureValue VarId ExprAST Env Sig
             | RecClosureValue VarId VarId ExprAST Env Sig
             | SystemValue Integer --TODO: add Files, tuples and lists
+            | FileValue Handle Integer
+            | PredefinedFileValue String Integer
             | TupleValue [Values]
             | ListValue [Values]
+
+data ApplyCall = ApplyOpenRead Values Values
+               | ApplyOpenWrite Values Values
+               | ApplyClose Values Values
+               | ApplyDelete Values Values
+               | ApplyRead Values
+               | ApplyWrite Values Values
+
+advanceSystem :: Values -> Values
+advanceSystem (SystemValue sys) = SystemValue (sys + 1)
+
+advanceFile :: Values -> Values
+advanceFile (FileValue h id) = FileValue h (id + 1)
+advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
+
+apply (ApplyOpenRead sys (ListValue pathList)) = do
+    h <- openFile path ReadMode
+    a <- return $ ConstValue (BoolConstAST True)
+    f <- return (FileValue h 0)
+    return $ TupleValue [a, sys', f]
+    where
+        path = stringFromValuesList pathList
+        sys' = advanceSystem sys
+
+apply (ApplyOpenWrite sys (ListValue pathList)) = do
+    h <- openFile path WriteMode
+    a <- return $ ConstValue (BoolConstAST True)
+    f <- return (FileValue h 0)
+    return $ TupleValue [a, sys', f]
+    where
+        path = stringFromValuesList pathList
+        sys' = advanceSystem sys
+
+apply (ApplyClose sys file@(FileValue handle id)) = do
+    a <- return $ ConstValue (BoolConstAST True)
+    hClose handle
+    return $ TupleValue [a, sys']
+    where
+        sys' = advanceSystem sys
+
+apply (ApplyDelete sys (ListValue pathList)) = do
+    a <- return $ ConstValue (BoolConstAST True)
+    removeFile path    
+    return $ TupleValue [a, sys']
+    where
+        path = stringFromValuesList pathList
+        sys' = advanceSystem sys
+
+apply (ApplyRead file@(FileValue handle id)) = do
+    a <- return $ ConstValue (BoolConstAST True)
+    c <- hGetChar handle
+    return $ TupleValue [a, (ConstValue (CharConstAST c)), f]
+    where
+        f = advanceFile file
+
+apply (ApplyWrite (ConstValue (CharConstAST ch)) file@(FileValue handle id)) = do
+    a <- return $ ConstValue (BoolConstAST True)
+    hPutChar handle ch
+    return $ TupleValue [a, f]
+    where
+        f = advanceFile file
+
+apply (ApplyWrite (ConstValue (CharConstAST ch)) file@(PredefinedFileValue "stdout" id)) = do
+    a <- return $ ConstValue (BoolConstAST True)
+    putChar ch
+    return $ TupleValue [a, f]
+    where
+        f = advanceFile file
 
 sortsType :: TypeId -> Sort
 sortsType typeId = typeName typeId
@@ -88,17 +164,17 @@ evalExpr expr env sigma = do
         (ConstExprAST const)          -> return $ ConstValue const
         (ParenExprAST expr')          -> evalExpr expr' env sigma
         (LambdaExprAST varId expr')   -> return $ ClosureValue varId expr' env sigma
-        (FunAppExprAST expr1 expr2)   -> evalFunApp expr1 expr2 env sigma
+--        (FunAppExprAST expr1 expr2)   -> evalFunApp expr1 expr2 env sigma
         (TupleExprAST exprs)          -> evalTuple exprs env sigma
         (ListExprAST exprs)           -> evalList exprs env sigma
-        (MatchExprAST expr' branches) -> evalMatch expr' branches env sigma
-        (CaseExprAST branches)        -> evalCase branches env sigma
-        (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma
+--        (MatchExprAST expr' branches) -> evalMatch expr' branches env sigma
+--        (CaseExprAST branches)        -> evalCase branches env sigma
+--        (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma
 
 evalVarExpr :: VarId -> Env -> Sig -> IO Values
 evalVarExpr varId env sigma =
     case maybeValue of
-        Nothing      -> error "error: variable '" ++ varName varId ++ "' is out of scope." -- TODO! (consider Either?)
+        Nothing      -> error $ "error: variable '" ++ varName varId ++ "' is out of scope." -- TODO! (consider Either?)
         (Just value) -> return value
     where
         maybeValue = env `getVar` varId
@@ -120,4 +196,4 @@ evalExprs (e:es) env sigma = do
     values <- evalExprs es env sigma
     return (value:values)
 
-evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO Values
+--evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO Values

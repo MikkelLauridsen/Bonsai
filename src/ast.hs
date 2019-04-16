@@ -88,8 +88,10 @@ data ConstAST = IntConstAST Int
               | ConcatenateConstAST
               | AndConstAST
               | OrConstAST
-              | OpenConstAST
+              | OpenReadConstAST
+              | OpenWriteConstAST
               | CloseConstAST
               | ReadConstAST
               | WriteConstAST
+              | DeleteConstAST
               deriving Show

@@ -72,7 +72,9 @@ convert_unary_op "~" = UnaryMinusConstAST
 convert_unary_op _   = error "undefined operator."
 
 convert_io_op :: String -> ConstAST
-convert_io_op "open" = OpenConstAST
+convert_io_op "open_read" = OpenReadConstAST
+convert_io_op "open_write" = OpenWriteConstAST
 convert_io_op "close" = CloseConstAST
 convert_io_op "read" = ReadConstAST
 convert_io_op "write" = WriteConstAST
+convert_io_op "delete" = DeleteConstAST
