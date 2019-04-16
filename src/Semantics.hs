@@ -60,24 +60,24 @@ has sigma t = let termCons = Set.toList sigma
 
 hasRec :: [TermConstructor] -> TypeId -> Bool
 hasRec [] _            = False
-hasRec ((t', _):rem) t = 
+hasRec ((t', _):remainder) t = 
     if t' == t
         then True
-        else hasRec rem t
+        else hasRec remainder t
 
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
 evaluateTermCons (SingleConsAST t) typeId          = (t, ConstSig (sortsType typeId))
 evaluateTermCons (DoubleConsAST t compType) typeId = (t, FuncSig (sorts compType) (sortsType typeId))
 
-interpret :: ProgAST -> IO ()
+interpret :: ProgAST -> IO Values
 interpret (ProgAST dt dv) = do
     sigma <- evalTypeDcl dt (Set.empty)
     env <- evalVarDcl dv (Map.empty) sigma
-    let maybeMain = env `getVar` (VarId "main")
+    let (maybeMain) = env `getVar` (VarId "main")
       in case maybeMain of
-            Nothing     -> putStrLn "error: main is not defined"
-            (Just main) -> let env' = env `except` (VarId "system", SystemValue 0)
-                             in evalExpr main env' sigma
+            Nothing -> error "error: main is not defined"
+            (Just (ClosureValue x e env2 sigma2)) -> let env' = env2 `except` (VarId "system", SystemValue 0)
+                             in evalExpr e env' sigma2
 
 evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
 evalTypeDcl dt sigma =
@@ -118,7 +118,7 @@ evalExpr expr env sigma = do
 evalVarExpr :: VarId -> Env -> Sig -> IO Values
 evalVarExpr varId env sigma =
     case maybeValue of
-        Nothing      -> error "error: variable '" ++ varName varId ++ "' is out of scope."
+        Nothing      -> error $ "error: variable '" ++ varName varId ++ "' is out of scope."
         (Just value) -> return value
     where
         maybeValue = env `getVar` varId
@@ -152,8 +152,8 @@ evalFunApp expr1 expr2 env sigma = do
         (TerValue t) -> return $ TerConsValue t v'
 
 partiallyApply :: ConstAST -> Values -> IO Values
-partiallyApply UnaryMinusConstAST value     = return $ apply UnaryMinusConstAST [value]
-partiallyApply NotConstAST value            = return $ apply NotConstAST [value]
+partiallyApply UnaryMinusConstAST value     = apply UnaryMinusConstAST [value]
+partiallyApply NotConstAST value            = apply NotConstAST [value]
 partiallyApply PlusConstAST value           = return $ PartialValue (\y -> apply PlusConstAST [value, y])
 partiallyApply MinusConstAST value          = return $ PartialValue (\y -> apply MinusConstAST [value, y])
 partiallyApply TimesConstAST value          = return $ PartialValue (\y -> apply TimesConstAST [value, y])
@@ -177,12 +177,28 @@ evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO Values
 evalLetIn xt expr1 expr2 env sigma = do
     value <- evalExpr expr1 env sigma
     case value of
-        (ClosureValue x' expr' env' sigma') -> evalExpr expr2 (env `except` (x, RecClosureValue x x' env' sigma')) sigma
+        (ClosureValue x' expr' env' sigma') -> evalExpr expr2 (env `except` (x, RecClosureValue x x' expr' env' sigma')) sigma
         _                  -> evalExpr expr2 (env `except` (x, value)) sigma
     where
         x = case xt of
             UntypedVarAST varId -> varId
             TypedVarAST varId _ -> varId
+
+evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> IO Values
+evalCase [] _ _ = error "error: non-exhaustive case branches."
+evalCase ((pred, expr'):branches') env sigma = do
+    res <- handlePred pred env sigma
+    if res
+        then evalExpr expr' env sigma
+        else evalCase branches' env sigma
+
+handlePred :: PredAST -> Env -> Sig -> IO Bool
+handlePred PredWildAST _ _              = return True
+handlePred (PredExprAST expr) env sigma = do 
+    res <- evalExpr expr env sigma
+    case res of
+        (ConstValue (BoolConstAST b)) -> return b
+
 
 evalMatch :: ExprAST -> [(PatternAST, ExprAST)] -> Env -> Sig -> IO Values
 evalMatch _ [] _ _                                 = error "error: non-exhaustive match branches."
@@ -260,10 +276,9 @@ apply MinusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]  
 apply MinusConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]        = return $ ConstValue (FloatConstAST (v1 - v2))
 apply TimesConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]            = return $ ConstValue (IntConstAST (v1 * v2))
 apply TimesConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]        = return $ ConstValue (FloatConstAST (v1 * v2))
-apply DivideConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 / v2))
+apply DivideConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `div` v2))
 apply DivideConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]       = return $ ConstValue (FloatConstAST (v1 / v2))
 apply ModuloConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `mod` v2))
-apply ModuloConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]       = return $ ConstValue (FloatConstAST (v1 `mod` v2))
 apply EqualsConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]         = return $ ConstValue (BoolConstAST (v1 == v2))
 apply NotConstAST [ConstValue (BoolConstAST v1)]                                          = return $ ConstValue (BoolConstAST (not v1))
 apply GreaterConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]        = return $ ConstValue (BoolConstAST (v1 > v2))
@@ -274,3 +289,6 @@ apply AppenConstAST [v1, ListValue v2]                                          
 apply ConcatenateConstAST [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
 apply AndConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]            = return $ ConstValue (BoolConstAST (v1 && v2))
 apply OrConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]             = return $ ConstValue (BoolConstAST (v1 || v2))
+
+
+--TODO !! udvid apply for boolske operatorer: hvad med tal osv?
