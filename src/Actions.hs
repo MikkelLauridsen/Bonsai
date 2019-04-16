@@ -8,6 +8,8 @@ module Actions
     , convert_unary_op
     , convert_io_op
     , handle_paren
+    , handle_string_expr
+    , handle_string_pat
     ) where
 
 import Ast
@@ -78,3 +80,12 @@ convert_io_op "close" = CloseConstAST
 convert_io_op "read" = ReadConstAST
 convert_io_op "write" = WriteConstAST
 convert_io_op "delete" = DeleteConstAST
+convert_io_op _ = error "undefined IO operation."
+
+handle_string_expr :: String -> [ExprAST]
+handle_string_expr []     = []
+handle_string_expr (c:cs) = ((ConstExprAST (CharConstAST c)):(handle_string_expr cs)) 
+
+handle_string_pat :: String -> [PatternAST]
+handle_string_pat []     = []
+handle_string_pat (c:cs) = ((ConstPatternAST (CharConstAST c)):(handle_string_pat cs)) 

@@ -112,8 +112,7 @@ Vars_body   : Vars_body ',' Typed_var                { $1 ++ [$3] }
 Typed_var   : var_id                                 { UntypedVarAST (VarId $1) }
             | var_id Type_spec                       { TypedVarAST (VarId $1) $2 }
 
-Literal     : string                                 { StringConstAST $1 }
-            | char                                   { CharConstAST $1 }
+Literal     : char                                   { CharConstAST $1 }
             | int                                    { IntConstAST $1 }
             | float                                  { FloatConstAST $1 }
             | bool                                   { BoolConstAST $1 }
@@ -127,6 +126,7 @@ ConstFun    : one_op                                 { convert_one_op $1 }
 
 Pattern     : Struc_pat                              { $1 }
             | Literal                                { ConstPatternAST $1 }
+            | string                                 { ListPatternAST (handle_string_pat $1) }
             | var_id                                 { VarPatternAST (VarId $1) }
             | '?'                                    { WildPatternAST }
             | type_id Pattern                        { TypeConsPatternAST (TypeId $1) $2 }
@@ -164,6 +164,7 @@ Func_expr   : Func_expr Lit_expr                     { FunAppExprAST $1 $2 }
 
 Lit_expr    : Lambda                                 { $1 }
             | Literal                                { ConstExprAST $1 }
+            | string                                 { ListExprAST (handle_string_expr $1) }
             | type_id                                { TypeExprAST (TypeId $1) }
             | var_id                                 { VarExprAST (VarId $1) }
             | '.' ConstFun                           { ConstExprAST $2 }

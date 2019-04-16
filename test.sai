@@ -1,42 +1,19 @@
 
-#type Maybe = {
-#| None
-#| Some Int
-#}
-#
-var test_minus = -323.23 * 32.23 + -3211.1
 
-#var expr = 43.3 * 32.2 /3.2 + (43.22 - 2.2 * 43.2)
-
-#var test = "interesting.\nwassupl"
-#var testttt = "xD
-#Dx"
-var test_2 = '\n'
-
-#var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) && y)
-#
-#var test = "noob"
-#
-var max = list::[Int] => {
-    match {
-    | []     -> None
-    | (x:xs) ->
-    let current = max xs in 
-        (match current {
-        | None -> x
-        | ?    ->
-            case {
-            | x > current  -> x
-            | x <= current -> current
-            }
-        })
+var writes::(String -> (File* -> (Bool, File*))) = s => {
+    f => {
+        match s {
+            | []     -> (true, f)
+            | (c:cs) -> 
+                let (succ, f') = write c f 
+                in (case {
+                    | succ == true -> (writes cs f')
+                    | ?            -> (false, f') 
+                })
+        }
     }
 }
 
-#var x = "aaaa\""
-
-#var xx_x = 32.3 * 3.2
-
-##var virk_tak = 230
-#
-##var xx_y = "heej noobs l hehe xD"
+var main = sys => {
+    writes "whassup bois xD\n" stdout
+}

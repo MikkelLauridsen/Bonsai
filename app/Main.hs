@@ -21,9 +21,18 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        []     -> interactive
-        [file] -> fromFile file
-        _      -> error "expected a single file."
+        []           -> interactive
+        [file]       -> fromFile file
+        [file, "@P"] -> prettifyFile file
+        _            -> error "expected a single file."
+
+-- prettifyFile tries to read the file at input path
+-- then parses it and prints an abstract representation
+-- of the program on success
+prettifyFile :: String -> IO ()
+prettifyFile file = do
+    result <- fmap (parseBonsai file) (readFile file)
+    putStrLn $ prettify result
 
 -- fromFile tries to read the file at input path
 -- and interprets it on success
@@ -76,7 +85,7 @@ runInterpret :: Either String ProgAST -> IO ()
 runInterpret (Left err) = putStrLn err
 runInterpret (Right ast) = do 
     _ <- interpret ast
-    putStrLn ".."
+    putChar '\n'
 
 -- prompts the user for a line in stdin
 -- and returns the result

@@ -26,6 +26,7 @@ type Sig = Set TermConstructor
 stringFromValuesList :: [Values] -> String
 stringFromValuesList [] = []
 stringFromValuesList ((ConstValue (CharConstAST chr)):xs) = [chr] ++ stringFromValuesList xs
+stringFromValuesList _ = error "error: value must be a list of characters."
 
 data Values = ConstValue ConstAST
             | TerValue TypeId
@@ -57,9 +58,6 @@ unionSig sigma1 sigma2 = Set.union sigma1 sigma2
 getVar :: Env -> VarId -> Maybe Values
 getVar env var = Map.lookup var env
 
-memberSig :: TermConstructor -> Sig -> Bool
-memberSig termCon sigma = Set.member termCon sigma
-
 has :: Sig -> TypeId -> Bool
 has sigma t = let termCons = Set.toList sigma
                 in hasRec termCons t
@@ -80,10 +78,12 @@ interpret (ProgAST dt dv) = do
     sigma <- evalTypeDcl dt (Set.empty)
     env <- evalVarDcl dv initEnv sigma
     let (maybeMain) = env `getVar` (VarId "main")
-      in case maybeMain of
+        in case maybeMain of
             Nothing -> error "error: main is not defined"
-            (Just (ClosureValue x e env2 sigma2)) -> let env' = env2 `except` (x, SystemValue 0)
-                             in evalExpr e env' sigma2
+            (Just (RecClosureValue _ x e env2 sigma2)) -> 
+                let env' = env2 `except` (x, SystemValue 0)
+                    in evalExpr e env' sigma2
+            _ -> error "error: invalid main signature."
     where
         stdin' = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
@@ -93,37 +93,38 @@ evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
 evalTypeDcl dt sigma =
     case dt of
         EpsTypeDclAST              -> return sigma
-        TypeDclAST typeId cons dt' -> do
-            sigma' <- evalTypeDcl dt' sigma
-            return $ sigma' `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons]) 
+        TypeDclAST typeId cons dt' -> evalTypeDcl dt' (sigma `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons])) 
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO Env
 evalVarDcl dv env sigma =
     case dv of
         EpsVarDclAST          -> return env
         VarDclAST xt expr dv' -> do
-            env' <- evalVarDcl dv' env sigma
             value <- evalExpr expr env sigma
-            return $ env' `except` (x, value) 
-            where 
+            case value of
+                (ClosureValue x' e' env2 sigma') -> evalVarDcl dv' (env `except` (x, RecClosureValue x x' e' env2 sigma')) sigma
+                _                                -> evalVarDcl dv' (env `except` (x, value)) sigma
+            where
                 x = case xt of
-                        UntypedVarAST varId -> varId
-                        TypedVarAST varId _ -> varId
+                    UntypedVarAST varId -> varId
+                    TypedVarAST varId _ -> varId
 
 evalExpr :: ExprAST -> Env -> Sig -> IO Values
 evalExpr expr env sigma = do
     case expr of
         (VarExprAST varId)            -> evalVarExpr varId env sigma
         (TypeExprAST typeId)          -> return $ TerValue typeId
-        (ConstExprAST c)          -> return $ ConstValue c
+        (ConstExprAST c)              -> return $ ConstValue c
         (ParenExprAST expr')          -> evalExpr expr' env sigma
         (LambdaExprAST varId expr')   -> return $ ClosureValue varId expr' env sigma
         (FunAppExprAST expr1 expr2)   -> evalFunApp expr1 expr2 env sigma
         (TupleExprAST exprs)          -> evalTuple exprs env sigma
         (ListExprAST exprs)           -> evalList exprs env sigma
-        (MatchExprAST expr' branches) -> evalMatch expr' branches env sigma
         (CaseExprAST branches)        -> evalCase branches env sigma
         (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma
+        (MatchExprAST expr' branches) -> do
+            value <- evalExpr expr' env sigma
+            evalMatch value branches env sigma
 
 evalVarExpr :: VarId -> Env -> Sig -> IO Values
 evalVarExpr varId env _ =
@@ -155,11 +156,12 @@ evalFunApp expr1 expr2 env sigma = do
     v <- evalExpr expr1 env sigma
     v' <- evalExpr expr2 env sigma
     case v of
-        (ConstValue c) -> partiallyApply c v'
-        (PartialValue f) -> f v'
-        (ClosureValue x e env' sigma') -> evalExpr e (env' `except` (x, v')) sigma'
-        body@(RecClosureValue f x e env' sigma') -> evalExpr e ((env' `except` (x, v')) `except` (f, body)) sigma'   
-        (TerValue t) -> return $ TerConsValue t v'
+        (ConstValue c)                      -> partiallyApply c v'
+        (PartialValue f)                    -> f v'
+        (ClosureValue x e env' sigma')      -> evalExpr e (env' `except` (x, v')) sigma'
+        (RecClosureValue f x e env' sigma') -> evalExpr e ((env' `except` (x, v')) `except` (f, v)) sigma'   
+        (TerValue t)                        -> return $ TerConsValue t v'
+        _                                   -> error "error: invalid function type."
 
 partiallyApply :: ConstAST -> Values -> IO Values
 partiallyApply UnaryMinusConstAST value     = apply UnaryMinusConstAST [value]
@@ -184,6 +186,7 @@ partiallyApply CloseConstAST value          = return $ PartialValue (\y -> apply
 partiallyApply ReadConstAST value           = return $ PartialValue (\y -> apply ReadConstAST [value, y])
 partiallyApply WriteConstAST value          = return $ PartialValue (\y -> apply WriteConstAST [value, y])
 partiallyApply DeleteConstAST value         = return $ PartialValue (\y -> apply DeleteConstAST [value, y])
+partiallyApply _ _                          = error "error: cannot partially apply a non-function constant."
 
 evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO Values
 evalLetIn xt expr1 expr2 env sigma = do
@@ -198,8 +201,8 @@ evalLetIn xt expr1 expr2 env sigma = do
 
 evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> IO Values
 evalCase [] _ _ = error "error: non-exhaustive case branches."
-evalCase ((pred, expr'):branches') env sigma = do
-    res <- handlePred pred env sigma
+evalCase ((pred', expr'):branches') env sigma = do
+    res <- handlePred pred' env sigma
     if res
         then evalExpr expr' env sigma
         else evalCase branches' env sigma
@@ -210,81 +213,84 @@ handlePred (PredExprAST expr) env sigma = do
     res <- evalExpr expr env sigma
     case res of
         (ConstValue (BoolConstAST b)) -> return b
+        _                             -> error "error: case condition must be a predicate or wildcard."
 
 
-evalMatch :: ExprAST -> [(PatternAST, ExprAST)] -> Env -> Sig -> IO Values
+evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Sig -> IO Values
 evalMatch _ [] _ _                                 = error "error: non-exhaustive match branches."
-evalMatch expr ((pat', expr'):branches') env sigma = do
-    bindings <- match expr pat' env sigma
-    case bindings of
-        MatchFail      -> evalMatch expr branches' env sigma
+evalMatch value ((pat', expr'):branches') env sigma =
+    case match value pat' sigma of
+        MatchFail      -> evalMatch value branches' env sigma
         Bindings delta -> evalExpr expr' (applyBindings env delta) sigma
 
-applyBindings :: Env -> [Binding] -> Env
+applyBindings :: Env -> [Binding] -> Env -- TODO! test intersection ..
 applyBindings env []     = env
-applyBindings env (b:bs) = let env' = env `except` b 
-                             in applyBindings env' bs
+applyBindings env (b:bs) = applyBindings (env `except` b) bs
 
-match :: ExprAST -> PatternAST -> Env -> Sig -> IO Bindings
-match expr (VarPatternAST varId) env sigma = do 
-    value <- evalExpr expr env sigma
-    return $ Bindings [(varId, value)]
+match :: Values -> PatternAST -> Sig -> Bindings
+match value (VarPatternAST varId) _ = Bindings [(varId, value)]
 
-match _ WildPatternAST _ _ = return $ Bindings []
+match _ WildPatternAST _ = Bindings []
 
-match (ConstExprAST c1) (ConstPatternAST c2) _ _ = 
-    return $ if c1 == c2 
-                then Bindings [] 
-                else MatchFail
+match (ConstValue c1) (ConstPatternAST c2) _ = 
+    if c1 == c2 
+        then Bindings [] 
+        else MatchFail
 
-match (TypeExprAST t1) (TypePatternAST t2) _ sigma =
+match (TerValue t1) (TypePatternAST t2) sigma =
     if (sigma `has` t1) && (sigma `has` t2)
         then if t1 == t2 
-                then return $ Bindings []
-                else return $ MatchFail
+                then Bindings []
+                else MatchFail
         else error "error: unknown term constructor." 
 
-match (ListExprAST (e:es)) (DecompPatternAST pat' varId) env sigma = do
-    value <- evalExpr (ListExprAST es) env sigma
-    delta <- match e pat' env sigma
-    return $ case delta of
-                MatchFail      -> MatchFail
-                Bindings binds -> Bindings ((varId, value):binds)
+match (ListValue (v:vs)) (DecompPatternAST pat' varId) sigma =
+    case delta of
+       MatchFail      -> MatchFail
+       Bindings binds -> Bindings ((varId, v'):binds)
+    where
+        v' = ListValue vs
+        delta = match v pat' sigma
 
-match (TupleExprAST es) (TuplePatternAST ps) env sigma = matchMultiple es ps env sigma
+match (TupleValue vs) (TuplePatternAST ps) sigma = matchMultiple vs ps sigma
 
-match (ListExprAST es) (ListPatternAST ps) env sigma = matchMultiple es ps env sigma                
+match (ListValue []) (ListPatternAST []) _ = Bindings []
+match (ListValue vs) (ListPatternAST ps) sigma = matchMultiple vs ps sigma                
 
-match (FunAppExprAST (TypeExprAST t1) expr') (TypeConsPatternAST t2 pat') env sigma =
+match (TerConsValue t1 value) (TypeConsPatternAST t2 pat') sigma =
     if (sigma `has` t1) && (sigma `has` t2)
         then if t1 == t2 
-                then match expr' pat' env sigma
-                else return $ MatchFail
+                then match value pat' sigma
+                else MatchFail
         else error "error: unknown term constructor."
 
-match _ _ _ _ = return MatchFail
+match _ _ _ = MatchFail
 
 
-matchMultiple :: [ExprAST] -> [PatternAST] -> Env -> Sig -> IO Bindings
-matchMultiple [] [] _ _               = return $ Bindings []
-matchMultiple (e:es) (p:ps) env sigma =
-    if (length es) /= (length ps)
-        then return $ MatchFail
-        else do
-            binds <- matchMultiple es ps env sigma
-            bind  <- match e p env sigma
-            return $ case (bind, binds) of
-                        (MatchFail, _)             -> MatchFail
-                        (_, MatchFail)             -> MatchFail
-                        (Bindings l1, Bindings l2) -> Bindings (l1 ++ l2) 
+matchMultiple :: [Values] -> [PatternAST] -> Sig -> Bindings
+matchMultiple [] [] _             = Bindings []
+matchMultiple (v:vs) (p:ps) sigma =
+    if (length vs) /= (length ps)
+        then MatchFail
+        else case (bind, binds) of
+                (MatchFail, _)             -> MatchFail
+                (_, MatchFail)             -> MatchFail
+                (Bindings l1, Bindings l2) -> Bindings (l1 ++ l2)
+            where
+                bind  = match v p sigma
+                binds = matchMultiple vs ps sigma
+
+matchMultiple _ _ _ = MatchFail
 
 
 advanceSystem :: Values -> Values
 advanceSystem (SystemValue sys) = SystemValue (sys + 1)
+advanceSystem _                 = error "error: cannot advance a non-system value."
 
 advanceFile :: Values -> Values
-advanceFile (FileValue h id) = FileValue h (id + 1)
+advanceFile (FileValue h id')          = FileValue h (id' + 1)
 advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
+advanceFile _                         = error "error: cannot advance a non-file value."
 
 apply :: ConstAST -> [Values] -> IO Values
 apply UnaryMinusConstAST [ConstValue (IntConstAST v1)]                                    = return $ ConstValue (IntConstAST (-v1))
@@ -328,7 +334,7 @@ apply OpenWriteConstAST [sys, (ListValue pathList)] = do
         path = stringFromValuesList pathList
         sys' = advanceSystem sys
 
-apply CloseConstAST [sys, file@(FileValue handle id)] = do
+apply CloseConstAST [sys, (FileValue handle _)] = do
     a <- return $ ConstValue (BoolConstAST True)
     hClose handle
     return $ TupleValue [a, sys']
@@ -343,25 +349,26 @@ apply DeleteConstAST [sys, (ListValue pathList)] = do
         path = stringFromValuesList pathList
         sys' = advanceSystem sys
 
-apply ReadConstAST [file@(FileValue handle id)] = do
+apply ReadConstAST [file@(FileValue handle _)] = do
     a <- return $ ConstValue (BoolConstAST True)
     c <- hGetChar handle
     return $ TupleValue [a, (ConstValue (CharConstAST c)), f]
     where
         f = advanceFile file
 
-apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue handle id)] = do
+apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue handle _)] = do
     a <- return $ ConstValue (BoolConstAST True)
     hPutChar handle ch
     return $ TupleValue [a, f]
     where
         f = advanceFile file
 
-apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "stdout" id)] = do
+apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "stdout" _)] = do
     a <- return $ ConstValue (BoolConstAST True)
     putChar ch
     return $ TupleValue [a, f]
     where
         f = advanceFile file
 
+apply _ _ = error "error: invalid arguments for apply."
 --TODO !! udvid apply for boolske operatorer: hvad med tal osv?
