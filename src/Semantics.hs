@@ -75,7 +75,7 @@ interpret (ProgAST dt dv) = do
     env <- evalVarDcl dv (Map.empty) sigma
     let maybeMain = env `getVar` (VarId "main")
       in case maybeMain of
-            Nothing     -> putStrLn "error: main is not defined" -- TODO: use Alex handledError ..
+            Nothing     -> putStrLn "error: main is not defined"
             (Just main) -> let env' = env `except` (VarId "system", SystemValue 0)
                              in evalExpr main env' sigma
 
@@ -118,7 +118,7 @@ evalExpr expr env sigma = do
 evalVarExpr :: VarId -> Env -> Sig -> IO Values
 evalVarExpr varId env sigma =
     case maybeValue of
-        Nothing      -> error "error: variable '" ++ varName varId ++ "' is out of scope." -- TODO! (consider Either?)
+        Nothing      -> error "error: variable '" ++ varName varId ++ "' is out of scope."
         (Just value) -> return value
     where
         maybeValue = env `getVar` varId
@@ -249,8 +249,28 @@ matchMultiple (e:es) (p:ps) env sigma =
                         (MatchFail, _)             -> MatchFail
                         (_, MatchFail)             -> MatchFail
                         (Bindings l1, Bindings l2) -> Bindings (l1 ++ l2) 
-    
--- apply
 
-apply PlusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)] = ConstValue (IntConstAST (v1 + v2))
-apply PlusConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)] = ConstValue (FloatConstAST (v1 + v2))
+
+apply :: ConstAST -> [Values] -> IO Values
+apply UnaryMinusConstAST [ConstValue (IntConstAST v1)]                                    = return $ ConstValue (IntConstAST (-v1))
+apply UnaryMinusConstAST [ConstValue (FloatConstAST v1)]                                  = return $ ConstValue (FloatConstAST (-v1))
+apply PlusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]             = return $ ConstValue (IntConstAST (v1 + v2))
+apply PlusConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]         = return $ ConstValue (FloatConstAST (v1 + v2))
+apply MinusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]            = return $ ConstValue (IntConstAST (v1 - v2))
+apply MinusConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]        = return $ ConstValue (FloatConstAST (v1 - v2))
+apply TimesConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]            = return $ ConstValue (IntConstAST (v1 * v2))
+apply TimesConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]        = return $ ConstValue (FloatConstAST (v1 * v2))
+apply DivideConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 / v2))
+apply DivideConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]       = return $ ConstValue (FloatConstAST (v1 / v2))
+apply ModuloConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `mod` v2))
+apply ModuloConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]       = return $ ConstValue (FloatConstAST (v1 `mod` v2))
+apply EqualsConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]         = return $ ConstValue (BoolConstAST (v1 == v2))
+apply NotConstAST [ConstValue (BoolConstAST v1)]                                          = return $ ConstValue (BoolConstAST (not v1))
+apply GreaterConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]        = return $ ConstValue (BoolConstAST (v1 > v2))
+apply LessConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]           = return $ ConstValue (BoolConstAST (v1 < v2))
+apply GreaterOrEqualConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)] = return $ ConstValue (BoolConstAST (v1 >= v2))
+apply LessOrEqualConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]    = return $ ConstValue (BoolConstAST (v1 <= v2))
+apply AppenConstAST [v1, ListValue v2]                                                    = return $ ListValue (v1:v2)
+apply ConcatenateConstAST [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
+apply AndConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]            = return $ ConstValue (BoolConstAST (v1 && v2))
+apply OrConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]             = return $ ConstValue (BoolConstAST (v1 || v2))
