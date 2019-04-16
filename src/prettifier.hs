@@ -122,7 +122,6 @@ instance PrettyShow ConstAST where
     prettyShow (IntConstAST val) ic = show val
     prettyShow (BoolConstAST val) ic = show val
     prettyShow (FloatConstAST val) ic = show val
-    prettyShow (StringConstAST val) ic = show val
     prettyShow (CharConstAST val) ic = show val
     prettyShow (UnaryMinusConstAST) ic = "~"
     prettyShow (PlusConstAST) ic = "+"

@@ -70,7 +70,6 @@ data PatternAST = ConstPatternAST ConstAST
 data ConstAST = IntConstAST Int
               | BoolConstAST Bool
               | FloatConstAST Float
-              | StringConstAST String
               | CharConstAST Char
               | UnaryMinusConstAST
               | PlusConstAST
