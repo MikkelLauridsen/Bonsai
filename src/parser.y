@@ -31,6 +31,7 @@ import Ast
     type_id   { Token _ (TypeIdToken $$) }
     var_id    { Token _ (VarIdToken $$) }
     '|'       { Token _ GuardToken }
+    '.'       { Token _ EscapeToken }
     '='       { Token _ DeclareToken }
     '{'       { Token _ CurlyOpenToken }
     '}'       { Token _ CurlyCloseToken }
@@ -121,7 +122,6 @@ ConstFun    : one_op                                 { convert_one_op $1 }
             | two_op                                 { convert_two_op $1 }
             | three_op                               { convert_three_op $1 }
             | unary_op                               { convert_unary_op $1 }
-            | io_op                                  { convert_io_op $1 }
 
 -- Patterns
 
@@ -157,16 +157,17 @@ Unary_infix : unary_op Left_expr                     { FunAppExprAST (ConstExprA
 Left_expr   : Match                                  { $1 }
             | Let_in                                 { $1 }
             | Case                                   { $1 }
-            | Func_expr                              { func_left_expr $1 }
+            | Func_expr                              { $1 }
 
-Func_expr   : Func_expr Lit_expr                     { $1 ++ [$2] }
-            | Lit_expr                               { [$1] }
+Func_expr   : Func_expr Lit_expr                     { FunAppExprAST $1 $2 }
+            | Lit_expr                               { $1 }
 
 Lit_expr    : Lambda                                 { $1 }
             | Literal                                { ConstExprAST $1 }
             | type_id                                { TypeExprAST (TypeId $1) }
             | var_id                                 { VarExprAST (VarId $1) }
-            | ConstFun                               { ConstExprAST $1 }
+            | '.' ConstFun                           { ConstExprAST $2 }
+            | io_op                                  { ConstExprAST (convert_io_op $1) }
             | '(' Tuple_body ')'                     { handle_paren $2 }
             | '[' List_body ']'                      { ListExprAST $2 }
 

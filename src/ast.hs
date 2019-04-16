@@ -94,4 +94,4 @@ data ConstAST = IntConstAST Int
               | ReadConstAST
               | WriteConstAST
               | DeleteConstAST
-              deriving Show
+              deriving (Show, Eq)

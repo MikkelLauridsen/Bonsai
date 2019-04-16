@@ -50,6 +50,7 @@ tokens :-
 <0>            ($upper | $upper [$alpha $digit \_]* [$alpha $digit]) \'? \*?   { lex TypeIdToken}
 <0>            ($lower | $lower [$alpha $digit \_]* [$alpha $digit]) \'?       { lex VarIdToken}
 <0>            \|                                                              { lex' GuardToken}
+<0>            \.                                                              { lex' EscapeToken}
 <0>            \=                                                              { lex' DeclareToken}
 <0>            \{                                                              { lex' CurlyOpenToken}
 <0>            \}                                                              { lex' CurlyCloseToken}
@@ -121,6 +122,7 @@ data Terminal =
     TypeIdToken String       |
     VarIdToken String        |
     GuardToken               |
+    EscapeToken              |
     DeclareToken             |
     CurlyOpenToken           |
     CurlyCloseToken          |
@@ -265,6 +267,7 @@ terminalString (StringToken string)       = string
 terminalString (TypeIdToken string)       = string
 terminalString (VarIdToken string)        = string
 terminalString GuardToken                 = "|"
+terminalString EscapeToken                = "."
 terminalString DeclareToken               = "="
 terminalString CurlyOpenToken             = "{"
 terminalString CurlyCloseToken            = "}"

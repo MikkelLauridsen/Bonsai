@@ -74,7 +74,9 @@ interactive = do
 
 runInterpret :: Either String ProgAST -> IO ()
 runInterpret (Left err) = putStrLn err
-runInterpret (Right ast) = interpret ast
+runInterpret (Right ast) = do 
+    _ <- interpret ast
+    putStrLn ".."
 
 -- prompts the user for a line in stdin
 -- and returns the result
