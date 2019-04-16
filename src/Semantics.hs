@@ -121,7 +121,7 @@ evalExpr expr env sigma = do
         (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma
 
 evalVarExpr :: VarId -> Env -> Sig -> IO Values
-evalVarExpr varId env sigma =
+evalVarExpr varId env _ =
     case maybeValue of
         Nothing      -> error $ "error: variable '" ++ varName varId ++ "' is out of scope."
         (Just value) -> return value
