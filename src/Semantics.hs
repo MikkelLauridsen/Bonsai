@@ -370,5 +370,12 @@ apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "
     where
         f = advanceFile file
 
+apply ReadConstAST [file@(PredefinedFileValue "stdin" _)] = do
+    a <- return $ ConstValue (BoolConstAST True)
+    c <- getChar
+    return $ TupleValue [a, (ConstValue (CharConstAST c)), f]
+    where
+        f = advanceFile file
+
 apply _ _ = error "error: invalid arguments for apply."
 --TODO !! udvid apply for boolske operatorer: hvad med tal osv?

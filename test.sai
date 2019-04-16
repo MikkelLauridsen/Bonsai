@@ -14,6 +14,40 @@ var writes::(String -> (File* -> (Bool, File*))) = s => {
     }
 }
 
+var readline::(String -> (File* -> (Bool, String, File*))) = s => {
+    f => {
+        let (succ, chr, f') = read f in (
+            case {
+                | chr == '\n' -> (true, s, f')
+                | ?           -> readline (s ++ [chr]) f'
+            }
+        )
+    }
+}
+
+var message = "whassup bois xD\n"
+
+var write_whassup_stdout = sys => {
+    writes message stdout
+}
+
+var write_whassup_file = sys => {
+    let (succ, sys', file) = open_write sys "whassup.txt" in (
+        let (succ, file') = writes message file in (
+            close sys' file'
+        )
+    )
+}
+
+var read_whassup_file = sys => {
+    let (succ, sys', file) = open_read sys "whassup.txt" in (
+        readline "" file
+    )
+}
+
 var main = sys => {
-    writes "whassup bois xD\n" stdout
+    write_whassup_file sys
+    #let (succ, line, file) = read_whassup_file sys in (
+    #    writes line stdout
+    #)
 }
