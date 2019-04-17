@@ -7,6 +7,7 @@ import Data.Map.Strict as Map
 import Data.Set as Set
 import System.IO
 import System.Directory
+import Control.Exception
 
 type Sort = String
 
@@ -23,18 +24,13 @@ type TermConstructor = (TypeId, Signature)
 type Env = Map VarId Values
 type Sig = Set TermConstructor
 
-stringFromValuesList :: [Values] -> String
-stringFromValuesList [] = []
-stringFromValuesList ((ConstValue (CharConstAST chr)):xs) = [chr] ++ stringFromValuesList xs
-stringFromValuesList _ = error "error: value must be a list of characters."
-
 data Values = ConstValue ConstAST
             | TerValue TypeId
             | TerConsValue TypeId Values
             | ClosureValue VarId ExprAST Env Sig
             | RecClosureValue VarId VarId ExprAST Env Sig
             | SystemValue Integer
-            | FileValue Handle Integer
+            | FileValue (Maybe Handle) Integer
             | PredefinedFileValue String Integer
             | TupleValue [Values]
             | ListValue [Values]
@@ -282,6 +278,10 @@ matchMultiple (v:vs) (p:ps) sigma =
 
 matchMultiple _ _ _ = MatchFail
 
+stringFromValuesList :: [Values] -> String
+stringFromValuesList [] = []
+stringFromValuesList ((ConstValue (CharConstAST chr)):xs) = [chr] ++ stringFromValuesList xs
+stringFromValuesList _ = error "error: value must be a list of characters."
 
 advanceSystem :: Values -> Values
 advanceSystem (SystemValue sys) = SystemValue (sys + 1)
@@ -291,6 +291,10 @@ advanceFile :: Values -> Values
 advanceFile (FileValue h id')          = FileValue h (id' + 1)
 advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
 advanceFile _                         = error "error: cannot advance a non-file value."
+
+trueValue = ConstValue (BoolConstAST True)
+falseValue = ConstValue (BoolConstAST False)
+emptyCharValue = ConstValue (CharConstAST ' ')
 
 apply :: ConstAST -> [Values] -> IO Values
 apply UnaryMinusConstAST [ConstValue (IntConstAST v1)]                                    = return $ ConstValue (IntConstAST (-v1))
@@ -315,65 +319,82 @@ apply ConcatenateConstAST [ListValue v1, ListValue v2]                          
 apply AndConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]            = return $ ConstValue (BoolConstAST (v1 && v2))
 apply OrConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]             = return $ ConstValue (BoolConstAST (v1 || v2))
 
---TODO i alle io apply funktioner, tilføj error checking
 apply OpenReadConstAST [sys, (ListValue pathList)] = do
-    h <- openFile path ReadMode
-    a <- return $ ConstValue (BoolConstAST True)
-    f <- return (FileValue h 0)
-    return $ TupleValue [a, sys', f]
+    e <- try (openFile path ReadMode) :: IO (Either IOException Handle)
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, sys', FileValue Nothing 0]
+        (Right h) -> return $ TupleValue [trueValue, sys', FileValue (Just h) 0]
     where
         path = stringFromValuesList pathList
         sys' = advanceSystem sys
 
 apply OpenWriteConstAST [sys, (ListValue pathList)] = do
-    h <- openFile path WriteMode
-    a <- return $ ConstValue (BoolConstAST True)
-    f <- return (FileValue h 0)
-    return $ TupleValue [a, sys', f]
+    e <- try (openFile path WriteMode) :: IO (Either IOException Handle)
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, sys', FileValue Nothing 0]
+        (Right h) -> return $ TupleValue [trueValue, sys', FileValue (Just h) 0]
     where
         path = stringFromValuesList pathList
         sys' = advanceSystem sys
 
-apply CloseConstAST [sys, (FileValue handle _)] = do
-    a <- return $ ConstValue (BoolConstAST True)
-    hClose handle
-    return $ TupleValue [a, sys']
+apply CloseConstAST [sys, (FileValue Nothing _)] = do
+    return $ TupleValue [falseValue, advanceSystem sys]
+
+apply CloseConstAST [sys, (FileValue (Just handle) _)] = do
+    e <- try (hClose handle) :: IO (Either IOException ())
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, sys']
+        (Right _) -> return $ TupleValue [trueValue, sys']
     where
         sys' = advanceSystem sys
+
+apply DeleteConstAST [sys, (FileValue Nothing _)] = do
+    return $ TupleValue [falseValue, advanceSystem sys]
 
 apply DeleteConstAST [sys, (ListValue pathList)] = do
-    a <- return $ ConstValue (BoolConstAST True)
-    removeFile path    
-    return $ TupleValue [a, sys']
+    e <- try (removeFile path) :: IO (Either IOException ())
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, sys']
+        (Right _) -> return $ TupleValue [trueValue, sys']
     where
         path = stringFromValuesList pathList
         sys' = advanceSystem sys
 
-apply ReadConstAST [file@(FileValue handle _)] = do
-    a <- return $ ConstValue (BoolConstAST True)
-    c <- hGetChar handle
-    return $ TupleValue [a, (ConstValue (CharConstAST c)), f]
+apply ReadConstAST [file@(FileValue Nothing _)] = do
+    return $ TupleValue [falseValue, emptyCharValue, advanceFile file]
+
+apply ReadConstAST [file@(FileValue (Just handle) _)] = do
+    e <- try (hGetChar handle) :: IO (Either IOException Char)
+    case e of
+        (Left e)   -> return $ TupleValue [falseValue, emptyCharValue, f]
+        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST ch), f]
     where
         f = advanceFile file
 
-apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue handle _)] = do
-    a <- return $ ConstValue (BoolConstAST True)
-    hPutChar handle ch
-    return $ TupleValue [a, f]
+apply WriteConstAST [_, file@(FileValue Nothing _)] = do
+    return $ TupleValue [falseValue, emptyCharValue, advanceFile file]
+
+apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue (Just handle) _)] = do
+    e <- try (hPutChar handle ch) :: IO (Either IOException ())
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, f]
+        (Right _) -> return $ TupleValue [trueValue, f]
     where
         f = advanceFile file
 
 apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "stdout" _)] = do
-    a <- return $ ConstValue (BoolConstAST True)
-    putChar ch
-    return $ TupleValue [a, f]
+    e <- try (putChar ch) :: IO (Either IOException ())
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, f]
+        (Right _) -> return $ TupleValue [trueValue, f]
     where
         f = advanceFile file
 
 apply ReadConstAST [file@(PredefinedFileValue "stdin" _)] = do
-    a <- return $ ConstValue (BoolConstAST True)
-    c <- getChar
-    return $ TupleValue [a, (ConstValue (CharConstAST c)), f]
+    e <- try getChar :: IO (Either IOException Char)
+    case e of
+        (Left e)  -> return $ TupleValue [falseValue, emptyCharValue, f]
+        (Right c) -> return $ TupleValue [trueValue, (ConstValue (CharConstAST c)), f]
     where
         f = advanceFile file
 

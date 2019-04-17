@@ -55,17 +55,21 @@ var readLn::(File* -> (Bool, String, File*)) = f => {
 #    )
 #}
 #
-#var read_whassup_file = sys => {
-#    let (succ, sys', file) = open_read sys "whassup.txt" in (
-#        readline "" file
-#    )
-#}
+var read_whassup_file = sys => {
+    let (succ, sys', file) = open_read sys "whassup.txt" in (
+        let (succ, line, file') = readLn file 
+        in (match succ {
+            | true  -> writes line stdout
+            | false -> writes "unable to access file.\n" stdout
+        })
+    )
+}
 
 var main::(System* -> (Bool, File*)) = sys => {
-    #write_whassup_file sys
-    let (succ, line, stdin') = readLn stdin 
-    in (match succ {
-        | true  -> writes line stdout
-        | false -> writes "unable to access stdin.\n" stdout
-    })
+    read_whassup_file sys
+    #let (succ, line, stdin') = readLn stdin 
+    #in (match succ {
+    #    | true  -> writes line stdout
+    #    | false -> writes "unable to access stdin.\n" stdout
+    #})
 }
