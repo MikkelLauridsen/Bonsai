@@ -17,51 +17,55 @@ var writes::(String -> (File* -> (Bool, File*))) = s => {
 var readLn::(File* -> (Bool, String, File*)) = f => {
     let (succ, c, f') = read f
     in (case {
-        | succ == true -> match c {
-            | '\n' -> (true, ['\n'], f')
-            | ?    -> let (succ2, s, f2') = readLn f'
-                      in (case {
-                          | succ2 == true -> (true, (c:s), f2')
-                          | ?             -> (false, (c:s), f2')
-                      })
+        | succ == true -> 
+        match c {
+        | '\n' -> (true, ['\n'], f')
+        | ?    -> let (succ2, s, f2') = readLn f'
+                  in (case {
+                      | succ2 == true -> (true, (c:s), f2')
+                      | ?             -> (false, (c:s), f2')
+                  })
         }
         | ?            -> (false, [c], f')
     })
 }
 
-var readline::(String -> (File* -> (Bool, String, File*))) = s => {
-    f => {
-        let (succ, chr, f') = read f in (
-            case {
-                | chr == '\n' -> (true, s, f')
-                | ?           -> readline (s ++ [chr]) f'
-            }
-        )
-    }
-}
+#var readline::(String -> (File* -> (Bool, String, File*))) = s => {
+#    f => {
+#        let (succ, chr, f') = read f in (
+#            case {
+#                | chr == '\n' -> (true, s, f')
+#                | ?           -> readline (s ++ [chr]) f'
+#            }
+#        )
+#    }
+#}
+#
+#var message = "whassup bois xD\n"
+#
+#var write_whassup_stdout = sys => {
+#    writes message stdout
+#}
+#
+#var write_whassup_file = sys => {
+#    let (succ, sys', file) = open_write sys "whassup.txt" in (
+#        let (succ, file') = writes message file in (
+#            close sys' file'
+#        )
+#    )
+#}
+#
+#var read_whassup_file = sys => {
+#    let (succ, sys', file) = open_read sys "whassup.txt" in (
+#        readline "" file
+#    )
+#}
 
-var message = "whassup bois xD\n"
-
-var write_whassup_stdout = sys => {
-    writes message stdout
-}
-
-var write_whassup_file = sys => {
-    let (succ, sys', file) = open_write sys "whassup.txt" in (
-        let (succ, file') = writes message file in (
-            close sys' file'
-        )
-    )
-}
-
-var read_whassup_file = sys => {
-    let (succ, sys', file) = open_read sys "whassup.txt" in (
-        readline "" file
-    )
-}
-
-var main = sys => {
+var main::(System* -> (Bool, File*)) = sys => {
     #write_whassup_file sys
-    let (succ, line, file) = readLn stdin 
-    in (writes line stdout)
+    let (succ, line, stdin') = readLn stdin 
+    in (match succ {
+        | true  -> writes line stdout
+        | false -> writes "unable to access stdin.\n" stdout
+    })
 }
