@@ -166,6 +166,7 @@ evalFunApp expr1 expr2 env sigma = do
 partiallyApply :: ConstAST -> Values -> IO Values
 partiallyApply UnaryMinusConstAST value     = apply UnaryMinusConstAST [value]
 partiallyApply NotConstAST value            = apply NotConstAST [value]
+partiallyApply ReadConstAST value           = apply ReadConstAST [value]
 partiallyApply PlusConstAST value           = return $ PartialValue (\y -> apply PlusConstAST [value, y])
 partiallyApply MinusConstAST value          = return $ PartialValue (\y -> apply MinusConstAST [value, y])
 partiallyApply TimesConstAST value          = return $ PartialValue (\y -> apply TimesConstAST [value, y])
@@ -183,7 +184,6 @@ partiallyApply OrConstAST value             = return $ PartialValue (\y -> apply
 partiallyApply OpenReadConstAST value       = return $ PartialValue (\y -> apply OpenReadConstAST [value, y])
 partiallyApply OpenWriteConstAST value      = return $ PartialValue (\y -> apply OpenWriteConstAST [value, y])
 partiallyApply CloseConstAST value          = return $ PartialValue (\y -> apply CloseConstAST [value, y])
-partiallyApply ReadConstAST value           = return $ PartialValue (\y -> apply ReadConstAST [value, y])
 partiallyApply WriteConstAST value          = return $ PartialValue (\y -> apply WriteConstAST [value, y])
 partiallyApply DeleteConstAST value         = return $ PartialValue (\y -> apply DeleteConstAST [value, y])
 partiallyApply _ _                          = error "error: cannot partially apply a non-function constant."
