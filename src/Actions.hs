@@ -80,6 +80,9 @@ convert_io_op "close" = CloseConstAST
 convert_io_op "read" = ReadConstAST
 convert_io_op "write" = WriteConstAST
 convert_io_op "delete" = DeleteConstAST
+convert_io_op "show" = ShowConstAST
+convert_io_op "to_int" = ToIntConstAST
+convert_io_op "to_float" = ToFloatConstAST
 convert_io_op _ = error "undefined IO operation."
 
 handle_string_expr :: String -> [ExprAST]

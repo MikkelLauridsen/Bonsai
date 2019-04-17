@@ -8,6 +8,7 @@ import Data.Set as Set
 import System.IO
 import System.Directory
 import Control.Exception
+import Text.Read
 
 type Sort = String
 
@@ -163,6 +164,9 @@ partiallyApply :: ConstAST -> Values -> IO Values
 partiallyApply UnaryMinusConstAST value     = apply UnaryMinusConstAST [value]
 partiallyApply NotConstAST value            = apply NotConstAST [value]
 partiallyApply ReadConstAST value           = apply ReadConstAST [value]
+partiallyApply ShowConstAST value           = apply ShowConstAST [value]
+partiallyApply ToIntConstAST value          = apply ToIntConstAST [value]
+partiallyApply ToFloatConstAST value        = apply ToFloatConstAST [value]
 partiallyApply PlusConstAST value           = return $ PartialValue (\y -> apply PlusConstAST [value, y])
 partiallyApply MinusConstAST value          = return $ PartialValue (\y -> apply MinusConstAST [value, y])
 partiallyApply TimesConstAST value          = return $ PartialValue (\y -> apply TimesConstAST [value, y])
@@ -278,10 +282,14 @@ matchMultiple (v:vs) (p:ps) sigma =
 
 matchMultiple _ _ _ = MatchFail
 
-stringFromValuesList :: [Values] -> String
-stringFromValuesList [] = []
-stringFromValuesList ((ConstValue (CharConstAST chr)):xs) = [chr] ++ stringFromValuesList xs
-stringFromValuesList _ = error "error: value must be a list of characters."
+valueListToString :: [Values] -> String
+valueListToString [] = ""
+valueListToString ((ConstValue (CharConstAST c)):cs) = (c:(valueListToString cs))
+valueListToString _ = error "error: list must be of chars."
+
+stringToValueList :: String -> [Values]
+stringToValueList []     = []
+stringToValueList (c:cs) = ((ConstValue (CharConstAST c)):(stringToValueList cs))
 
 advanceSystem :: Values -> Values
 advanceSystem (SystemValue sys) = SystemValue (sys + 1)
@@ -325,7 +333,7 @@ apply OpenReadConstAST [sys, (ListValue pathList)] = do
         (Left e)  -> return $ TupleValue [falseValue, sys', FileValue Nothing 0]
         (Right h) -> return $ TupleValue [trueValue, sys', FileValue (Just h) 0]
     where
-        path = stringFromValuesList pathList
+        path = valueListToString pathList
         sys' = advanceSystem sys
 
 apply OpenWriteConstAST [sys, (ListValue pathList)] = do
@@ -334,7 +342,7 @@ apply OpenWriteConstAST [sys, (ListValue pathList)] = do
         (Left e)  -> return $ TupleValue [falseValue, sys', FileValue Nothing 0]
         (Right h) -> return $ TupleValue [trueValue, sys', FileValue (Just h) 0]
     where
-        path = stringFromValuesList pathList
+        path = valueListToString pathList
         sys' = advanceSystem sys
 
 apply CloseConstAST [sys, (FileValue Nothing _)] = do
@@ -357,7 +365,7 @@ apply DeleteConstAST [sys, (ListValue pathList)] = do
         (Left e)  -> return $ TupleValue [falseValue, sys']
         (Right _) -> return $ TupleValue [trueValue, sys']
     where
-        path = stringFromValuesList pathList
+        path = valueListToString pathList
         sys' = advanceSystem sys
 
 apply ReadConstAST [file@(FileValue Nothing _)] = do
@@ -384,6 +392,7 @@ apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue (Just handl
 
 apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "stdout" _)] = do
     e <- try (putChar ch) :: IO (Either IOException ())
+    hFlush stdout
     case e of
         (Left e)  -> return $ TupleValue [falseValue, f]
         (Right _) -> return $ TupleValue [trueValue, f]
@@ -398,5 +407,56 @@ apply ReadConstAST [file@(PredefinedFileValue "stdin" _)] = do
     where
         f = advanceFile file
 
+apply ShowConstAST [ConstValue (CharConstAST c)] = return $ ListValue [ConstValue (CharConstAST c)]
+apply ShowConstAST [ConstValue (BoolConstAST b)] = return $ ListValue (stringToValueList (show b))
+apply ShowConstAST [ConstValue (FloatConstAST f)] = return $ ListValue (stringToValueList (show f))
+apply ShowConstAST [ConstValue (IntConstAST i)] = return $ ListValue (stringToValueList (show i))
+apply ShowConstAST [TerValue t] = return $ ListValue (stringToValueList (typeName t))
+apply ShowConstAST [TerConsValue t v] = do
+    res <- apply ShowConstAST [v]
+    case res of
+        (ListValue l) -> return $ ListValue (stringToValueList (typeName t) ++ space ++ l)
+        _             -> error "error: must be a list."
+        where
+            space = [ConstValue (CharConstAST ' ')]
+
+apply ShowConstAST [ListValue l] = do 
+    l' <- showList' l
+    return $ ListValue ([ConstValue (CharConstAST '[')] ++ getValueList l' ++ [ConstValue (CharConstAST ']')])
+
+apply ShowConstAST [TupleValue l] = do 
+    l' <- showList' l
+    return $ ListValue ([ConstValue (CharConstAST '(')] ++ getValueList l' ++ [ConstValue (CharConstAST ')')])
+
+apply ToIntConstAST [ListValue cs] =
+    return $ case readMaybe string of
+                Nothing  -> TupleValue [ConstValue (BoolConstAST False), ConstValue (IntConstAST (-1))]
+                (Just i) -> TupleValue [ConstValue (BoolConstAST True), ConstValue (IntConstAST i)]
+        where
+            string = valueListToString cs
+
+apply ToFloatConstAST [ListValue cs] =
+    return $ case readMaybe string of
+        Nothing  -> TupleValue [ConstValue (BoolConstAST False), ConstValue (FloatConstAST (-1.0))]
+        (Just f) -> TupleValue [ConstValue (BoolConstAST True), ConstValue (FloatConstAST f)]
+        where
+            string = valueListToString cs
+
 apply _ _ = error "error: invalid arguments for apply."
 --TODO !! udvid apply for boolske operatorer: hvad med tal osv?
+
+getValueList :: Values -> [Values]
+getValueList (ListValue l) = l
+getValueList _ = error "error: value is not a list."
+
+showList' :: [Values] -> IO Values
+showList' []     = return $ ListValue []
+showList' [v]    = apply ShowConstAST [v]
+showList' (v:vs) = do
+    v' <- apply ShowConstAST [v]
+    vs' <- showList' vs
+    case (v', vs') of
+        (ListValue l1, ListValue l2) -> return $ ListValue (l1 ++ spacer ++ l2)
+        _ -> error "error: must be a list."
+        where
+            spacer = [ConstValue (CharConstAST ','), ConstValue (CharConstAST ' ')]

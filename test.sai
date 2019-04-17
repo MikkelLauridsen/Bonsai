@@ -30,46 +30,45 @@ var readLn::(File* -> (Bool, String, File*)) = f => {
     })
 }
 
-#var readline::(String -> (File* -> (Bool, String, File*))) = s => {
-#    f => {
-#        let (succ, chr, f') = read f in (
-#            case {
-#                | chr == '\n' -> (true, s, f')
-#                | ?           -> readline (s ++ [chr]) f'
-#            }
-#        )
-#    }
-#}
-#
-#var message = "whassup bois xD\n"
-#
-#var write_whassup_stdout = sys => {
-#    writes message stdout
-#}
-#
-#var write_whassup_file = sys => {
-#    let (succ, sys', file) = open_write sys "whassup.txt" in (
-#        let (succ, file') = writes message file in (
-#            close sys' file'
-#        )
-#    )
-#}
-#
-var read_whassup_file = sys => {
-    let (succ, sys', file) = open_read sys "whassup.txt" in (
-        let (succ, line, file') = readLn file 
-        in (match succ {
-            | true  -> writes line stdout
-            | false -> writes "unable to access file.\n" stdout
-        })
-    )
+var reverse::(String -> String) = s => {
+    match s {
+        | []     -> []
+        | (c:cs) -> reverse cs ++ [c]
+    }
+} 
+
+var prompt = s => {
+    outf => {
+        inf => {
+            let (succ, outf') = writes s outf
+            in (match succ {
+                | true -> 
+                    let (succ', line, inf') = readLn inf
+                    in (match succ' {
+                        | true -> (true, line, outf', inf')
+                        | ?    -> (false, "", outf', inf')
+                    })
+                | ?    -> (false, "", outf', inf)
+            })
+        }
+    }
 }
 
-var main::(System* -> (Bool, File*)) = sys => {
-    read_whassup_file sys
-    #let (succ, line, stdin') = readLn stdin 
-    #in (match succ {
-    #    | true  -> writes line stdout
-    #    | false -> writes "unable to access stdin.\n" stdout
-    #})
+var main = sys => {
+    let (succ, line, stdout', stdin') = prompt "input int-value: " stdout stdin
+    in (match succ {
+        | true -> match (to_int line) {
+            | (false, ?) -> writes "invalid string format.\n"
+            | (?, val)   -> writes ("times 2: " ++ (show (2 * val))) stdout' 
+        }
+        | ?    -> writes "could not access file.\n" stdout'
+    })
 }
+
+#var main::(System* -> (Bool, File*)) = sys => {
+#    let (succ, line, stdin') = readLn stdin 
+#    in (match succ {
+#        | true  -> writes (reverse line) stdout
+#        | false -> writes "unable to access stdin.\n" stdout
+#    })
+#}

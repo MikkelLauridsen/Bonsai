@@ -145,3 +145,6 @@ instance PrettyShow ConstAST where
     prettyShow (ReadConstAST) ic = "read"
     prettyShow (WriteConstAST) ic = "write"
     prettyShow (DeleteConstAST) ic = "delete"
+    prettyShow (ShowConstAST) ic = "show"
+    prettyShow (ToIntConstAST) ic = "to_int"
+    prettyShow (ToFloatConstAST) ic = "to_float"

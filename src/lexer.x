@@ -50,6 +50,9 @@ tokens :-
 <0>            read                                                            { lex IOToken }
 <0>            write                                                           { lex IOToken }
 <0>            delete                                                          { lex IOToken }
+<0>            show                                                            { lex IOToken }
+<0>            to_int                                                          { lex IOToken }
+<0>            to_float                                                        { lex IOToken }
 <0>            \=\>                                                            { lex' FollowsToken}
 <0>            \-? $digit+                                                     { lex (IntToken . read)}
 <0>            \-? $digit+\.$digit+                                            { lex (FloatToken . read)}
