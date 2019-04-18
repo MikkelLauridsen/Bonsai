@@ -1,6 +1,5 @@
 module Actions
     ( let_in
-    , decomp_pat
     , func_left_expr
     , convert_one_op
     , convert_two_op
@@ -17,13 +16,6 @@ import Ast
 --rule Let_in: 1
 let_in :: [PatternAST] -> ExprAST -> ExprAST -> ExprAST
 let_in tuple expr1 expr2 = MatchExprAST expr1 [(TuplePatternAST tuple, expr2)]
-
---rule Struc_pat: 4
-decomp_pat :: PatternAST -> String -> VarId -> PatternAST
-decomp_pat pat op var = 
-    case op of
-        ":" -> DecompPatternAST pat var
-        _   -> error "only the decomposition operator may be used in a pattern."
 
 --rule Left_expr: 4
 func_left_expr :: [ExprAST] -> ExprAST
@@ -57,7 +49,6 @@ convert_three_op "<"  = LessConstAST
 convert_three_op ">"  = GreaterConstAST
 convert_three_op "<=" = LessOrEqualConstAST
 convert_three_op ">=" = GreaterOrEqualConstAST
-convert_three_op ":"  = AppenConstAST
 convert_three_op _    = error "undefined operator."
 
 convert_unary_op :: String -> ConstAST

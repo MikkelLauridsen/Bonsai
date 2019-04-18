@@ -36,6 +36,7 @@ import Ast
     '{'       { Token _ CurlyOpenToken }
     '}'       { Token _ CurlyCloseToken }
     '::'      { Token _ AnnotateToken }
+    ':'       { Token _ ConsToken }
     '['       { Token _ SquareOpenToken }
     ']'       { Token _ SquareCloseToken }
     '('       { Token _ ParenOpenToken }
@@ -138,7 +139,7 @@ Pattern     : Struc_pat                              { $1 }
 Struc_pat   : '(' Pat_body ')'                       { TuplePatternAST $2 }
             | '['']'                                 { ListPatternAST [] }
             | '[' Pat_body ']'                       { ListPatternAST $2 }
-            | '(' Pattern three_op var_id ')'        { decomp_pat $2 $3 (VarId $4) }
+            | '(' Pattern ':' var_id ')'             { DecompPatternAST $2 (VarId $4) }
 
 Pat_body    : Pat_body ',' Pattern                   { $1 ++ [$3] }
             | Pattern                                { [$1] }
@@ -172,6 +173,7 @@ Lit_expr    : Lambda                                 { $1 }
             | var_id                                 { VarExprAST (VarId $1) }
             | '.' ConstFun                           { ConstExprAST $2 }
             | io_op                                  { ConstExprAST (convert_io_op $1) }
+            | '(' Expr ':' Expr ')'                  { FunAppExprAST (FunAppExprAST (ConstExprAST AppenConstAST) $2) $4 }
             | '(' Tuple_body ')'                     { handle_paren $2 }
             | '[' List_body ']'                      { ListExprAST $2 }
 
@@ -217,7 +219,6 @@ handleExpected expected = "expected: " ++
         case map convertWord expected of
             []       -> "\n"
             [s]      -> s ++ "\n"
-            [s2, s1] -> s1 ++ " or " ++ s2 ++ "\n"
             (s:ss)   -> (reverse ss >>= (++ ", ")) ++ s ++ "\n" 
 
 -- convertWord formats a selected few possible token names to a more pleasant format

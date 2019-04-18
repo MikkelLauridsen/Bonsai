@@ -84,7 +84,7 @@ tokens :-
 <0>            \>                                                              { stringTerminalToToken LevelThreeOpToken}
 <0>            \<\=                                                            { stringTerminalToToken LevelThreeOpToken}
 <0>            \>\=                                                            { stringTerminalToToken LevelThreeOpToken}
-<0>            \:                                                              { stringTerminalToToken LevelThreeOpToken}
+<0>            \:                                                              { terminalToToken ConsToken}
 <0>            \!                                                              { stringTerminalToToken UnaryOpToken}
 <0>            \~                                                              { stringTerminalToToken UnaryOpToken}
 <0>            \"                                                              { enterString `andBegin` state_string} --" switch to the string state
@@ -134,6 +134,7 @@ data Terminal =
     SquareCloseToken         |
     ParenOpenToken           |
     ParenCloseToken          |
+    ConsToken                |
     EntailsToken             |
     CommaToken               |
     WildcardToken            |
@@ -287,6 +288,7 @@ terminalString SquareOpenToken            = "["
 terminalString SquareCloseToken           = "]"
 terminalString ParenOpenToken             = "("
 terminalString ParenCloseToken            = ")"
+terminalString ConsToken                  = ":"
 terminalString EntailsToken               = "->"
 terminalString CommaToken                 = ","
 terminalString WildcardToken              = "?"
