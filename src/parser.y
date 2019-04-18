@@ -188,7 +188,7 @@ List_body   :                                        { [] }
 {
 
 lexwrap :: (Token -> Alex a) -> Alex a
-lexwrap = (alexMonadScan' >>=)
+lexwrap = (scanBonsai >>=)
 
 -- parseError is called when no production rule can handle the current token
 -- calls the lexer handleError function with a parser error message
@@ -244,6 +244,6 @@ getErrorIndicator num length = take num (repeat ' ') ++ take length (repeat '^')
 -- it takes a filepath which is used to specify which file is responsible for given errors
 -- also takes a string which will be scanned and parsed
 parseBonsai :: FilePath -> String -> Either String ProgAST
-parseBonsai = runAlex' parse
+parseBonsai = setFileAndRun parse
 
 }
