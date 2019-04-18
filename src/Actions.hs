@@ -13,25 +13,17 @@ module Actions
     ) where
 
 import Ast
-import Lexer
 
 --rule Let_in: 1
-let_in :: [TypeVarAST] -> ExprAST -> ExprAST -> ExprAST
-let_in [var] expr1 expr2 = LetInExprAST var expr1 expr2
-let_in tuple expr1 expr2 = MatchExprAST expr1 [(tuple_to_pattern tuple, expr2)]
-
-tuple_to_pattern :: [TypeVarAST] -> PatternAST
-tuple_to_pattern vars = TuplePatternAST (map type_var_to_pat vars) 
-
-type_var_to_pat :: TypeVarAST -> PatternAST
-type_var_to_pat (UntypedVarAST name) = VarPatternAST name
-type_var_to_pat (TypedVarAST name _) = VarPatternAST name
+let_in :: [PatternAST] -> ExprAST -> ExprAST -> ExprAST
+let_in tuple expr1 expr2 = MatchExprAST expr1 [(TuplePatternAST tuple, expr2)]
 
 --rule Struc_pat: 4
 decomp_pat :: PatternAST -> String -> VarId -> PatternAST
-decomp_pat pat op var = case op of
-                          ":" -> DecompPatternAST pat var
-                          _   -> error "only the decomposition operator may be used in a pattern."
+decomp_pat pat op var = 
+    case op of
+        ":" -> DecompPatternAST pat var
+        _   -> error "only the decomposition operator may be used in a pattern."
 
 --rule Left_expr: 4
 func_left_expr :: [ExprAST] -> ExprAST

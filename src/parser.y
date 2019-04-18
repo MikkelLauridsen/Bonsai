@@ -91,7 +91,8 @@ Match       : match Expr '{' Match_body '}'          { MatchExprAST $2 $4 }
 Match_body  : Match_body '|' Pattern '->' Expr       { $1 ++ [($3, $5)] }
             | '|' Pattern '->' Expr                  { [($2, $4)] }
 
-Let_in      : let Vars '=' Expr in '(' Expr ')'      { let_in $2 $4 $7 }
+Let_in      : let Typed_var '=' Expr in '(' Expr ')' { LetInExprAST $2 $4 $7 }
+            | let Vars '=' Expr in '(' Expr ')'      { let_in $2 $4 $7 }
 
 Case        : case '{' Case_body '}'                 { CaseExprAST $3 }
 
@@ -103,11 +104,13 @@ Pred        : Expr                                   { PredExprAST $1 }
 
 -- Utilities
 
-Vars        : Typed_var                              { [$1] }
-            | '(' Vars_body ')'                      { $2 }
+Vars        : '(' Vars_body ')'                      { $2 }
 
-Vars_body   : Vars_body ',' Typed_var                { $1 ++ [$3] }
-            | Typed_var                              { [$1] }
+Vars_body   : Vars_body ',' Vars_joint                { $1 ++ [$3] }
+            | Vars_joint ',' Vars_joint               { [$1, $3] }
+
+Vars_joint  : var_id                                 { VarPatternAST (VarId $1) }
+            | '?'                                    { WildPatternAST }
 
 Typed_var   : var_id                                 { UntypedVarAST (VarId $1) }
             | var_id Type_spec                       { TypedVarAST (VarId $1) $2 }

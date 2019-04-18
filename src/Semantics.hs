@@ -305,6 +305,8 @@ falseValue = ConstValue (BoolConstAST False)
 emptyCharValue = ConstValue (CharConstAST ' ')
 
 apply :: ConstAST -> [Values] -> IO Values
+
+-- arithmetic operators
 apply UnaryMinusConstAST [ConstValue (IntConstAST v1)]                                    = return $ ConstValue (IntConstAST (-v1))
 apply UnaryMinusConstAST [ConstValue (FloatConstAST v1)]                                  = return $ ConstValue (FloatConstAST (-v1))
 apply PlusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]             = return $ ConstValue (IntConstAST (v1 + v2))
@@ -316,17 +318,22 @@ apply TimesConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2
 apply DivideConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `div` v2))
 apply DivideConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]       = return $ ConstValue (FloatConstAST (v1 / v2))
 apply ModuloConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `mod` v2))
+
+-- boolean operators
 apply EqualsConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]         = return $ ConstValue (BoolConstAST (v1 == v2))
 apply NotConstAST [ConstValue (BoolConstAST v1)]                                          = return $ ConstValue (BoolConstAST (not v1))
 apply GreaterConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]        = return $ ConstValue (BoolConstAST (v1 > v2))
 apply LessConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]           = return $ ConstValue (BoolConstAST (v1 < v2))
 apply GreaterOrEqualConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)] = return $ ConstValue (BoolConstAST (v1 >= v2))
 apply LessOrEqualConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]    = return $ ConstValue (BoolConstAST (v1 <= v2))
-apply AppenConstAST [v1, ListValue v2]                                                    = return $ ListValue (v1:v2)
-apply ConcatenateConstAST [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
 apply AndConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]            = return $ ConstValue (BoolConstAST (v1 && v2))
 apply OrConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]             = return $ ConstValue (BoolConstAST (v1 || v2))
 
+-- list operations
+apply AppenConstAST [v1, ListValue v2]                                                    = return $ ListValue (v1:v2)
+apply ConcatenateConstAST [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
+
+-- IO operations
 apply OpenReadConstAST [sys, (ListValue pathList)] = do
     e <- try (openFile path ReadMode) :: IO (Either IOException Handle)
     case e of
@@ -380,7 +387,7 @@ apply ReadConstAST [file@(FileValue (Just handle) _)] = do
         f = advanceFile file
 
 apply WriteConstAST [_, file@(FileValue Nothing _)] = do
-    return $ TupleValue [falseValue, emptyCharValue, advanceFile file]
+    return $ TupleValue [falseValue, advanceFile file]
 
 apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue (Just handle) _)] = do
     e <- try (hPutChar handle ch) :: IO (Either IOException ())
@@ -407,6 +414,7 @@ apply ReadConstAST [file@(PredefinedFileValue "stdin" _)] = do
     where
         f = advanceFile file
 
+-- string conversion operations
 apply ShowConstAST [ConstValue (CharConstAST c)] = return $ ListValue [ConstValue (CharConstAST c)]
 apply ShowConstAST [ConstValue (BoolConstAST b)] = return $ ListValue (stringToValueList (show b))
 apply ShowConstAST [ConstValue (FloatConstAST f)] = return $ ListValue (stringToValueList (show f))
@@ -443,7 +451,6 @@ apply ToFloatConstAST [ListValue cs] =
             string = valueListToString cs
 
 apply _ _ = error "error: invalid arguments for apply."
---TODO !! udvid apply for boolske operatorer: hvad med tal osv?
 
 getValueList :: Values -> [Values]
 getValueList (ListValue l) = l

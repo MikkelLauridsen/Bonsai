@@ -57,8 +57,9 @@ var prompt = s => {
 var main = sys => {
     let (succ, line, stdout', stdin') = prompt "input int-value: " stdout stdin
     in (match succ {
-        | true -> match (to_int line) {
-            | (false, ?) -> writes "invalid string format.\n"
+        | true -> 
+        match (to_int line) {
+            | (false, ?) -> writes "invalid string format.\n" stdout'
             | (?, val)   -> writes ("times 2: " ++ (show (2 * val))) stdout' 
         }
         | ?    -> writes "could not access file.\n" stdout'
