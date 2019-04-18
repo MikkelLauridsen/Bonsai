@@ -9,69 +9,167 @@ module Actions
     , handle_paren
     , handle_string_expr
     , handle_string_pat
+    , getUtilData
+    , getVarId
+    , getTypeId
+    , getCharVal
+    , getIntVal
+    , getFloatVal
+    , getBoolVal
+    , getUtilDataProg
+    , getUtilDataExpr
+    , getUtilDataConst
     ) where
 
 import Ast
+import Lexer
+
+getUtilData :: Token -> UtilData
+getUtilData (Token (AlexUserState {currentLine=l, Lexer.position=p, lineNumber=n}) _) = UtilData Untyped (getPosition p n) l
+
+getPosition :: AlexPosn -> (Int, Int) -> (Int, Int, Int)
+getPosition (AlexPn _ line column) (_, off) = (line, column, off)
+
+getUtilDataProg :: TypeDclAST -> VarDclAST -> UtilData
+getUtilDataProg (TypeDclAST _ _ _ utilData) _ = utilData
+getUtilDataProg _ (VarDclAST _ _ _ utilData)  = utilData
+getUtilDataProg _ _                           = UtilData Untyped (0, 0, 0) ""
+
+getUtilDataExpr :: ExprAST -> UtilData
+getUtilDataExpr (VarExprAST _ utilData)       = utilData
+getUtilDataExpr (TypeExprAST _ utilData)      = utilData
+getUtilDataExpr (ConstExprAST _ utilData)     = utilData
+getUtilDataExpr (ParenExprAST _ utilData)     = utilData
+getUtilDataExpr (LambdaExprAST _ _ utilData)  = utilData
+getUtilDataExpr (FunAppExprAST _ _ utilData)  = utilData
+getUtilDataExpr (TupleExprAST _ utilData)     = utilData
+getUtilDataExpr (ListExprAST _ utilData)      = utilData
+getUtilDataExpr (MatchExprAST _ _ utilData)   = utilData
+getUtilDataExpr (CaseExprAST _ utilData)      = utilData
+getUtilDataExpr (LetInExprAST _ _ _ utilData) = utilData
+
+getUtilDataConst :: ConstAST -> UtilData
+getUtilDataConst (IntConstAST _ utilData) = utilData
+getUtilDataConst (BoolConstAST _ utilData) = utilData
+getUtilDataConst (FloatConstAST _ utilData) = utilData
+getUtilDataConst (CharConstAST _ utilData) = utilData
+getUtilDataConst (UnaryMinusConstAST utilData) = utilData
+getUtilDataConst (PlusConstAST utilData) = utilData
+getUtilDataConst (MinusConstAST utilData) = utilData
+getUtilDataConst (TimesConstAST utilData) = utilData
+getUtilDataConst (DivideConstAST utilData) = utilData
+getUtilDataConst (ModuloConstAST utilData) = utilData
+getUtilDataConst (EqualsConstAST utilData) = utilData
+getUtilDataConst (NotConstAST utilData) = utilData
+getUtilDataConst (GreaterConstAST utilData) = utilData
+getUtilDataConst (LessConstAST utilData) = utilData
+getUtilDataConst (GreaterOrEqualConstAST utilData) = utilData
+getUtilDataConst (LessOrEqualConstAST utilData) = utilData
+getUtilDataConst (AppenConstAST utilData) = utilData
+getUtilDataConst (ConcatenateConstAST utilData) = utilData
+getUtilDataConst (AndConstAST utilData) = utilData
+getUtilDataConst (OrConstAST utilData) = utilData
+getUtilDataConst (OpenReadConstAST utilData) = utilData
+getUtilDataConst (OpenWriteConstAST utilData) = utilData
+getUtilDataConst (CloseConstAST utilData) = utilData
+getUtilDataConst (ReadConstAST utilData) = utilData
+getUtilDataConst (WriteConstAST utilData) = utilData
+getUtilDataConst (DeleteConstAST utilData) = utilData
+getUtilDataConst (ShowConstAST utilData) = utilData
+getUtilDataConst (ToIntConstAST utilData) = utilData
+getUtilDataConst (ToFloatConstAST utilData) = utilData
+
+getVarId :: Token -> VarId
+getVarId (Token _ (VarIdToken name)) = VarId name Untyped
+getVarId _ = error "Token must be asociated with a var id."
+
+getTypeId :: Token -> TypeId
+getTypeId (Token _ (TypeIdToken name)) = TypeId name
+getTypeId _ = error "Token must be associated with a type id."
+
+getCharVal :: Token -> Char
+getCharVal (Token _ (CharToken c)) = c
+getCharVal _ = error "Token must be associated with a char value."
+
+getIntVal :: Token -> Int
+getIntVal (Token _ (IntToken i)) = i
+getIntVal _ = error "Token must be associated with an int value."
+
+getFloatVal :: Token -> Float
+getFloatVal (Token _ (FloatToken f)) = f
+getFloatVal _ = error "Token must be associated with a float value."
+
+getBoolVal :: Token -> Bool
+getBoolVal (Token _ (BoolToken b)) = b
+getBoolVal _ = error "Token must be associated with a boolean value."
 
 --rule Let_in: 1
-let_in :: [PatternAST] -> ExprAST -> ExprAST -> ExprAST
-let_in tuple expr1 expr2 = MatchExprAST expr1 [(TuplePatternAST tuple, expr2)]
+let_in :: [PatternAST] -> ExprAST -> ExprAST -> UtilData -> ExprAST
+let_in tuple expr1 expr2 utilData = MatchExprAST expr1 [(TuplePatternAST tuple utilData, expr2)] utilData
 
 --rule Left_expr: 4
-func_left_expr :: [ExprAST] -> ExprAST
-func_left_expr []     = error "Cannot apply a function to zero arguments."
-func_left_expr [expr] = expr
-func_left_expr (x:xs) = FunAppExprAST x (func_left_expr xs)
+func_left_expr :: [ExprAST] -> UtilData -> ExprAST
+func_left_expr [] _            = error "Cannot apply a function to zero arguments."
+func_left_expr [expr] _        = expr
+func_left_expr (x:xs) utilData = FunAppExprAST x (func_left_expr xs utilData) utilData
 
 --rule Lit_expr: 6
-handle_paren :: [ExprAST] -> ExprAST
-handle_paren []       = error "Bonsai does not allow use of the unit type."
-handle_paren [single] = ParenExprAST single
-handle_paren multiple = TupleExprAST multiple
+handle_paren :: [ExprAST] -> UtilData -> ExprAST
+handle_paren [] _              = error "Bonsai does not allow use of the unit type."
+handle_paren [single] utilData = ParenExprAST single utilData
+handle_paren multiple utilData = TupleExprAST multiple utilData
 
-convert_one_op :: String -> ConstAST
-convert_one_op "+"  = PlusConstAST
-convert_one_op "-"  = MinusConstAST
-convert_one_op "++" = ConcatenateConstAST
-convert_one_op "&&" = AndConstAST
-convert_one_op "||" = OrConstAST
+convert_one_op :: Token -> ConstAST
+convert_one_op token@(Token _ (LevelOneOpToken "+"))  = PlusConstAST (getUtilData token)
+convert_one_op token@(Token _ (LevelOneOpToken "-"))  = MinusConstAST (getUtilData token)
+convert_one_op token@(Token _ (LevelOneOpToken "++")) = ConcatenateConstAST (getUtilData token)
+convert_one_op token@(Token _ (LevelOneOpToken "&&")) = AndConstAST (getUtilData token)
+convert_one_op token@(Token _ (LevelOneOpToken "||")) = OrConstAST (getUtilData token)
 convert_one_op _    = error "undefined operator."
 
-convert_two_op :: String -> ConstAST
-convert_two_op "*"  = TimesConstAST
-convert_two_op "/"  = DivideConstAST
-convert_two_op "%"  = ModuloConstAST
-convert_two_op "==" = EqualsConstAST
+convert_two_op :: Token -> ConstAST
+convert_two_op token@(Token _ (LevelTwoOpToken "*"))  = TimesConstAST (getUtilData token)
+convert_two_op token@(Token _ (LevelTwoOpToken "/"))  = DivideConstAST (getUtilData token)
+convert_two_op token@(Token _ (LevelTwoOpToken "%"))  = ModuloConstAST (getUtilData token)
+convert_two_op token@(Token _ (LevelTwoOpToken "==")) = EqualsConstAST (getUtilData token)
 convert_two_op _    = error "undefined operator."
 
-convert_three_op :: String -> ConstAST
-convert_three_op "<"  = LessConstAST
-convert_three_op ">"  = GreaterConstAST
-convert_three_op "<=" = LessOrEqualConstAST
-convert_three_op ">=" = GreaterOrEqualConstAST
+convert_three_op :: Token -> ConstAST
+convert_three_op token@(Token _ (LevelThreeOpToken "<"))  = LessConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken ">"))  = GreaterConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken "<=")) = LessOrEqualConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken ">=")) = GreaterOrEqualConstAST (getUtilData token)
 convert_three_op _    = error "undefined operator."
 
-convert_unary_op :: String -> ConstAST
-convert_unary_op "!" = NotConstAST
-convert_unary_op "~" = UnaryMinusConstAST
+convert_unary_op :: Token -> ConstAST
+convert_unary_op token@(Token _ (UnaryOpToken "!")) = NotConstAST (getUtilData token)
+convert_unary_op token@(Token _ (UnaryOpToken "~")) = UnaryMinusConstAST (getUtilData token)
 convert_unary_op _   = error "undefined operator."
 
-convert_io_op :: String -> ConstAST
-convert_io_op "open_read" = OpenReadConstAST
-convert_io_op "open_write" = OpenWriteConstAST
-convert_io_op "close" = CloseConstAST
-convert_io_op "read" = ReadConstAST
-convert_io_op "write" = WriteConstAST
-convert_io_op "delete" = DeleteConstAST
-convert_io_op "show" = ShowConstAST
-convert_io_op "to_int" = ToIntConstAST
-convert_io_op "to_float" = ToFloatConstAST
+convert_io_op :: Token -> ConstAST
+convert_io_op token@(Token _ (IOToken "open_read"))  = OpenReadConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "open_write")) = OpenWriteConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "close"))      = CloseConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "read"))       = ReadConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "write"))      = WriteConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "delete"))     = DeleteConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "show"))       = ShowConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "to_int"))     = ToIntConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "to_float"))   = ToFloatConstAST (getUtilData token)
 convert_io_op _ = error "undefined IO operation."
 
-handle_string_expr :: String -> [ExprAST]
-handle_string_expr []     = []
-handle_string_expr (c:cs) = ((ConstExprAST (CharConstAST c)):(handle_string_expr cs)) 
+handle_string_expr :: Token -> [ExprAST]
+handle_string_expr (Token _ (StringToken []))         = []
+handle_string_expr token@(Token userState (StringToken (c:cs))) = ((ConstExprAST (CharConstAST c utilData) utilData):(handle_string_expr (Token userState (StringToken cs)))) 
+    where
+        utilData = getUtilData token
+        
+handle_string_expr _ = error "unexpected token type."
 
-handle_string_pat :: String -> [PatternAST]
-handle_string_pat []     = []
-handle_string_pat (c:cs) = ((ConstPatternAST (CharConstAST c)):(handle_string_pat cs)) 
+handle_string_pat :: Token -> [PatternAST]
+handle_string_pat (Token _ (StringToken []))         = []
+handle_string_pat token@(Token userState (StringToken (c:cs))) = ((ConstPatternAST (CharConstAST c utilData) utilData):(handle_string_pat (Token userState (StringToken cs)))) 
+    where
+        utilData = getUtilData token
+
+handle_string_pat _ = error "unexpected token type."

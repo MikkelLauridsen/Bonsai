@@ -41,10 +41,10 @@ sortsType :: TypeId -> Sort
 sortsType typeId = typeName typeId
 
 sorts :: CompTypeAST -> Sort
-sorts (CompSimpleAST typeId) = sortsType typeId
-sorts (CompListAST comp') = "[" ++ sorts comp' ++ "]"
-sorts (CompTupleAST comps') = "(" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ")"
-sorts (CompFuncAST comp1' comp2') = sorts comp1' ++ "->" ++ sorts comp2'
+sorts (CompSimpleAST typeId _) = sortsType typeId
+sorts (CompListAST comp' _) = "[" ++ sorts comp' ++ "]"
+sorts (CompTupleAST comps' _) = "(" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ")"
+sorts (CompFuncAST comp1' comp2' _) = sorts comp1' ++ "->" ++ sorts comp2'
 
 except :: Env -> Binding -> Env
 except env (var, value) = Map.insertWith const var value env
@@ -67,14 +67,14 @@ hasRec ((t', _):remainder) t =
         else hasRec remainder t
 
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
-evaluateTermCons (SingleConsAST t) typeId          = (t, ConstSig (sortsType typeId))
-evaluateTermCons (DoubleConsAST t compType) typeId = (t, FuncSig (sorts compType) (sortsType typeId))
+evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (sortsType typeId))
+evaluateTermCons (DoubleConsAST t compType _) typeId = (t, FuncSig (sorts compType) (sortsType typeId))
 
 interpret :: ProgAST -> IO Values
-interpret (ProgAST dt dv) = do
+interpret (ProgAST dt dv utilData) = do
     sigma <- evalTypeDcl dt (Set.empty)
     env <- evalVarDcl dv initEnv sigma
-    let (maybeMain) = env `getVar` (VarId "main")
+    let (maybeMain) = env `getVar` (VarId "main" Untyped)
         in case maybeMain of
             Nothing -> error "error: main is not defined"
             (Just (RecClosureValue _ x e env2 sigma2)) -> 
@@ -84,42 +84,46 @@ interpret (ProgAST dt dv) = do
     where
         stdin' = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
-        initEnv = Map.fromList [(VarId "stdin", stdin'), (VarId "stdout", stdout')] 
+        initEnv = Map.fromList [(VarId "stdin" Untyped, stdin'), (VarId "stdout" Untyped, stdout')] 
+
+-- TODO: check conflicts!
 
 evalTypeDcl :: TypeDclAST -> Sig -> IO Sig
 evalTypeDcl dt sigma =
     case dt of
-        EpsTypeDclAST              -> return sigma
-        TypeDclAST typeId cons dt' -> evalTypeDcl dt' (sigma `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons])) 
+        EpsTypeDclAST                       -> return sigma
+        TypeDclAST typeId cons dt' utilData -> evalTypeDcl dt' (sigma `unionSig` (Set.fromList [evaluateTermCons ts typeId | ts <- cons])) 
+
+-- TODO: check conflicts!
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO Env
 evalVarDcl dv env sigma =
     case dv of
-        EpsVarDclAST          -> return env
-        VarDclAST xt expr dv' -> do
+        EpsVarDclAST                   -> return env
+        VarDclAST xt expr dv' utilData -> do
             value <- evalExpr expr env sigma
             case value of
                 (ClosureValue x' e' env2 sigma') -> evalVarDcl dv' (env `except` (x, RecClosureValue x x' e' env2 sigma')) sigma
                 _                                -> evalVarDcl dv' (env `except` (x, value)) sigma
             where
                 x = case xt of
-                    UntypedVarAST varId -> varId
-                    TypedVarAST varId _ -> varId
+                    UntypedVarAST varId _ -> varId
+                    TypedVarAST varId _ _ -> varId
 
 evalExpr :: ExprAST -> Env -> Sig -> IO Values
 evalExpr expr env sigma = do
     case expr of
-        (VarExprAST varId)            -> evalVarExpr varId env sigma
-        (TypeExprAST typeId)          -> return $ TerValue typeId
-        (ConstExprAST c)              -> return $ ConstValue c
-        (ParenExprAST expr')          -> evalExpr expr' env sigma
-        (LambdaExprAST varId expr')   -> return $ ClosureValue varId expr' env sigma
-        (FunAppExprAST expr1 expr2)   -> evalFunApp expr1 expr2 env sigma
-        (TupleExprAST exprs)          -> evalTuple exprs env sigma
-        (ListExprAST exprs)           -> evalList exprs env sigma
-        (CaseExprAST branches)        -> evalCase branches env sigma
-        (LetInExprAST xt expr1 expr2) -> evalLetIn xt expr1 expr2 env sigma
-        (MatchExprAST expr' branches) -> do
+        (VarExprAST varId _)            -> evalVarExpr varId env sigma
+        (TypeExprAST typeId _)          -> return $ TerValue typeId
+        (ConstExprAST c _)              -> return $ ConstValue c
+        (ParenExprAST expr' _)          -> evalExpr expr' env sigma
+        (LambdaExprAST varId expr' _)   -> return $ ClosureValue varId expr' env sigma
+        (FunAppExprAST expr1 expr2 _)   -> evalFunApp expr1 expr2 env sigma
+        (TupleExprAST exprs _)          -> evalTuple exprs env sigma
+        (ListExprAST exprs _)           -> evalList exprs env sigma
+        (CaseExprAST branches _)        -> evalCase branches env sigma
+        (LetInExprAST xt expr1 expr2 _) -> evalLetIn xt expr1 expr2 env sigma
+        (MatchExprAST expr' branches _) -> do
             value <- evalExpr expr' env sigma
             evalMatch value branches env sigma
 
@@ -161,31 +165,31 @@ evalFunApp expr1 expr2 env sigma = do
         _                                   -> error "error: invalid function type."
 
 partiallyApply :: ConstAST -> Values -> IO Values
-partiallyApply UnaryMinusConstAST value     = apply UnaryMinusConstAST [value]
-partiallyApply NotConstAST value            = apply NotConstAST [value]
-partiallyApply ReadConstAST value           = apply ReadConstAST [value]
-partiallyApply ShowConstAST value           = apply ShowConstAST [value]
-partiallyApply ToIntConstAST value          = apply ToIntConstAST [value]
-partiallyApply ToFloatConstAST value        = apply ToFloatConstAST [value]
-partiallyApply PlusConstAST value           = return $ PartialValue (\y -> apply PlusConstAST [value, y])
-partiallyApply MinusConstAST value          = return $ PartialValue (\y -> apply MinusConstAST [value, y])
-partiallyApply TimesConstAST value          = return $ PartialValue (\y -> apply TimesConstAST [value, y])
-partiallyApply DivideConstAST value         = return $ PartialValue (\y -> apply DivideConstAST [value, y])
-partiallyApply ModuloConstAST value         = return $ PartialValue (\y -> apply ModuloConstAST [value, y])
-partiallyApply EqualsConstAST value         = return $ PartialValue (\y -> apply EqualsConstAST [value, y])
-partiallyApply GreaterConstAST value        = return $ PartialValue (\y -> apply GreaterConstAST [value, y])
-partiallyApply LessConstAST value           = return $ PartialValue (\y -> apply LessConstAST [value, y])
-partiallyApply GreaterOrEqualConstAST value = return $ PartialValue (\y -> apply GreaterOrEqualConstAST [value, y])
-partiallyApply LessOrEqualConstAST value    = return $ PartialValue (\y -> apply LessOrEqualConstAST [value, y])
-partiallyApply AppenConstAST value          = return $ PartialValue (\y -> apply AppenConstAST [value, y])
-partiallyApply ConcatenateConstAST value    = return $ PartialValue (\y -> apply ConcatenateConstAST [value, y])
-partiallyApply AndConstAST value            = return $ PartialValue (\y -> apply AndConstAST [value, y])
-partiallyApply OrConstAST value             = return $ PartialValue (\y -> apply OrConstAST [value, y])
-partiallyApply OpenReadConstAST value       = return $ PartialValue (\y -> apply OpenReadConstAST [value, y])
-partiallyApply OpenWriteConstAST value      = return $ PartialValue (\y -> apply OpenWriteConstAST [value, y])
-partiallyApply CloseConstAST value          = return $ PartialValue (\y -> apply CloseConstAST [value, y])
-partiallyApply WriteConstAST value          = return $ PartialValue (\y -> apply WriteConstAST [value, y])
-partiallyApply DeleteConstAST value         = return $ PartialValue (\y -> apply DeleteConstAST [value, y])
+partiallyApply fun@(UnaryMinusConstAST _) value     = apply fun [value]
+partiallyApply fun@(NotConstAST _) value            = apply fun [value]
+partiallyApply fun@(ReadConstAST _) value           = apply fun [value]
+partiallyApply fun@(ShowConstAST _) value           = apply fun [value]
+partiallyApply fun@(ToIntConstAST _) value          = apply fun [value]
+partiallyApply fun@(ToFloatConstAST _) value        = apply fun [value]
+partiallyApply fun@(PlusConstAST _) value           = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(MinusConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(TimesConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(DivideConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(ModuloConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(EqualsConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(GreaterConstAST _) value        = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(LessConstAST _) value           = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(GreaterOrEqualConstAST _) value = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(LessOrEqualConstAST _) value    = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(AppenConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(ConcatenateConstAST _) value    = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(AndConstAST _) value            = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(OrConstAST _) value             = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(OpenReadConstAST _) value       = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(OpenWriteConstAST _) value      = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(CloseConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(WriteConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(DeleteConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply _ _                          = error "error: cannot partially apply a non-function constant."
 
 evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO Values
@@ -196,8 +200,8 @@ evalLetIn xt expr1 expr2 env sigma = do
         _                  -> evalExpr expr2 (env `except` (x, value)) sigma
     where
         x = case xt of
-            UntypedVarAST varId -> varId
-            TypedVarAST varId _ -> varId
+            UntypedVarAST varId _ -> varId
+            TypedVarAST varId _ _ -> varId
 
 evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> IO Values
 evalCase [] _ _ = error "error: non-exhaustive case branches."
@@ -208,11 +212,11 @@ evalCase ((pred', expr'):branches') env sigma = do
         else evalCase branches' env sigma
 
 handlePred :: PredAST -> Env -> Sig -> IO Bool
-handlePred PredWildAST _ _              = return True
-handlePred (PredExprAST expr) env sigma = do 
+handlePred (PredWildAST _) _ _            = return True
+handlePred (PredExprAST expr _) env sigma = do 
     res <- evalExpr expr env sigma
     case res of
-        (ConstValue (BoolConstAST b)) -> return b
+        (ConstValue (BoolConstAST b _)) -> return b
         _                             -> error "error: case condition must be a predicate or wildcard."
 
 
@@ -228,23 +232,23 @@ applyBindings env []     = env
 applyBindings env (b:bs) = applyBindings (env `except` b) bs
 
 match :: Values -> PatternAST -> Sig -> Bindings
-match value (VarPatternAST varId) _ = Bindings [(varId, value)]
+match value (VarPatternAST varId _) _ = Bindings [(varId, value)]
 
-match _ WildPatternAST _ = Bindings []
+match _ (WildPatternAST _) _ = Bindings []
 
-match (ConstValue c1) (ConstPatternAST c2) _ = 
+match (ConstValue c1) (ConstPatternAST c2 _) _ = 
     if c1 == c2 
         then Bindings [] 
         else MatchFail
 
-match (TerValue t1) (TypePatternAST t2) sigma =
+match (TerValue t1) (TypePatternAST t2 utilData) sigma =
     if (sigma `has` t1) && (sigma `has` t2)
         then if t1 == t2 
                 then Bindings []
                 else MatchFail
         else error "error: unknown term constructor." 
 
-match (ListValue (v:vs)) (DecompPatternAST pat' varId) sigma =
+match (ListValue (v:vs)) (DecompPatternAST pat' varId _) sigma =
     case delta of
        MatchFail      -> MatchFail
        Bindings binds -> Bindings ((varId, v'):binds)
@@ -252,12 +256,12 @@ match (ListValue (v:vs)) (DecompPatternAST pat' varId) sigma =
         v' = ListValue vs
         delta = match v pat' sigma
 
-match (TupleValue vs) (TuplePatternAST ps) sigma = matchMultiple vs ps sigma
+match (TupleValue vs) (TuplePatternAST ps _) sigma = matchMultiple vs ps sigma
 
-match (ListValue []) (ListPatternAST []) _ = Bindings []
-match (ListValue vs) (ListPatternAST ps) sigma = matchMultiple vs ps sigma                
+match (ListValue []) (ListPatternAST [] _) _ = Bindings []
+match (ListValue vs) (ListPatternAST ps _) sigma = matchMultiple vs ps sigma                
 
-match (TerConsValue t1 value) (TypeConsPatternAST t2 pat') sigma =
+match (TerConsValue t1 value) (TypeConsPatternAST t2 pat' utilData) sigma =
     if (sigma `has` t1) && (sigma `has` t2)
         then if t1 == t2 
                 then match value pat' sigma
@@ -284,12 +288,12 @@ matchMultiple _ _ _ = MatchFail
 
 valueListToString :: [Values] -> String
 valueListToString [] = ""
-valueListToString ((ConstValue (CharConstAST c)):cs) = (c:(valueListToString cs))
+valueListToString ((ConstValue (CharConstAST c _)):cs) = (c:(valueListToString cs))
 valueListToString _ = error "error: list must be of chars."
 
 stringToValueList :: String -> [Values]
 stringToValueList []     = []
-stringToValueList (c:cs) = ((ConstValue (CharConstAST c)):(stringToValueList cs))
+stringToValueList (c:cs) = ((ConstValue (CharConstAST c initUtilData)):(stringToValueList cs))
 
 advanceSystem :: Values -> Values
 advanceSystem (SystemValue sys) = SystemValue (sys + 1)
@@ -300,41 +304,41 @@ advanceFile (FileValue h id')          = FileValue h (id' + 1)
 advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
 advanceFile _                         = error "error: cannot advance a non-file value."
 
-trueValue = ConstValue (BoolConstAST True)
-falseValue = ConstValue (BoolConstAST False)
-emptyCharValue = ConstValue (CharConstAST ' ')
+trueValue = ConstValue (BoolConstAST True initUtilData)
+falseValue = ConstValue (BoolConstAST False initUtilData)
+emptyCharValue = ConstValue (CharConstAST ' ' initUtilData)
 
 apply :: ConstAST -> [Values] -> IO Values
 
 -- arithmetic operators
-apply UnaryMinusConstAST [ConstValue (IntConstAST v1)]                                    = return $ ConstValue (IntConstAST (-v1))
-apply UnaryMinusConstAST [ConstValue (FloatConstAST v1)]                                  = return $ ConstValue (FloatConstAST (-v1))
-apply PlusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]             = return $ ConstValue (IntConstAST (v1 + v2))
-apply PlusConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]         = return $ ConstValue (FloatConstAST (v1 + v2))
-apply MinusConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]            = return $ ConstValue (IntConstAST (v1 - v2))
-apply MinusConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]        = return $ ConstValue (FloatConstAST (v1 - v2))
-apply TimesConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]            = return $ ConstValue (IntConstAST (v1 * v2))
-apply TimesConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]        = return $ ConstValue (FloatConstAST (v1 * v2))
-apply DivideConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `div` v2))
-apply DivideConstAST [ConstValue (FloatConstAST v1), ConstValue (FloatConstAST v2)]       = return $ ConstValue (FloatConstAST (v1 / v2))
-apply ModuloConstAST [ConstValue (IntConstAST v1), ConstValue (IntConstAST v2)]           = return $ ConstValue (IntConstAST (v1 `mod` v2))
+apply (UnaryMinusConstAST utilData) [ConstValue (IntConstAST v1 _)]                                      = return $ ConstValue (IntConstAST (-v1) utilData)
+apply (UnaryMinusConstAST utilData) [ConstValue (FloatConstAST v1 _)]                                    = return $ ConstValue (FloatConstAST (-v1) utilData)
+apply (PlusConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]             = return $ ConstValue (IntConstAST (v1 + v2) utilData)
+apply (PlusConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]         = return $ ConstValue (FloatConstAST (v1 + v2) utilData)
+apply (MinusConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]            = return $ ConstValue (IntConstAST (v1 - v2) utilData)
+apply (MinusConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]        = return $ ConstValue (FloatConstAST (v1 - v2) utilData)
+apply (TimesConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]            = return $ ConstValue (IntConstAST (v1 * v2) utilData)
+apply (TimesConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]        = return $ ConstValue (FloatConstAST (v1 * v2) utilData)
+apply (DivideConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]           = return $ ConstValue (IntConstAST (v1 `div` v2) utilData)
+apply (DivideConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]       = return $ ConstValue (FloatConstAST (v1 / v2) utilData)
+apply (ModuloConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]           = return $ ConstValue (IntConstAST (v1 `mod` v2) utilData)
 
 -- boolean operators
-apply EqualsConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]         = return $ ConstValue (BoolConstAST (v1 == v2))
-apply NotConstAST [ConstValue (BoolConstAST v1)]                                          = return $ ConstValue (BoolConstAST (not v1))
-apply GreaterConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]        = return $ ConstValue (BoolConstAST (v1 > v2))
-apply LessConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]           = return $ ConstValue (BoolConstAST (v1 < v2))
-apply GreaterOrEqualConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)] = return $ ConstValue (BoolConstAST (v1 >= v2))
-apply LessOrEqualConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]    = return $ ConstValue (BoolConstAST (v1 <= v2))
-apply AndConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]            = return $ ConstValue (BoolConstAST (v1 && v2))
-apply OrConstAST [ConstValue (BoolConstAST v1), ConstValue (BoolConstAST v2)]             = return $ ConstValue (BoolConstAST (v1 || v2))
+apply (EqualsConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]         = return $ ConstValue (BoolConstAST (v1 == v2) utilData)
+apply (NotConstAST utilData) [ConstValue (BoolConstAST v1 _)]                                            = return $ ConstValue (BoolConstAST (not v1) utilData)
+apply (GreaterConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]        = return $ ConstValue (BoolConstAST (v1 > v2) utilData)
+apply (LessConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]           = return $ ConstValue (BoolConstAST (v1 < v2) utilData)
+apply (GreaterOrEqualConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)] = return $ ConstValue (BoolConstAST (v1 >= v2) utilData)
+apply (LessOrEqualConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]    = return $ ConstValue (BoolConstAST (v1 <= v2) utilData)
+apply (AndConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]            = return $ ConstValue (BoolConstAST (v1 && v2) utilData)
+apply (OrConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]             = return $ ConstValue (BoolConstAST (v1 || v2) utilData)
 
 -- list operations
-apply AppenConstAST [v1, ListValue v2]                                                    = return $ ListValue (v1:v2)
-apply ConcatenateConstAST [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
+apply (AppenConstAST _) [v1, ListValue v2]                                                    = return $ ListValue (v1:v2)
+apply (ConcatenateConstAST _) [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
 
 -- IO operations
-apply OpenReadConstAST [sys, (ListValue pathList)] = do
+apply (OpenReadConstAST _) [sys, (ListValue pathList)] = do
     e <- try (openFile path ReadMode) :: IO (Either IOException Handle)
     case e of
         (Left e)  -> return $ TupleValue [falseValue, sys', FileValue Nothing 0]
@@ -343,7 +347,7 @@ apply OpenReadConstAST [sys, (ListValue pathList)] = do
         path = valueListToString pathList
         sys' = advanceSystem sys
 
-apply OpenWriteConstAST [sys, (ListValue pathList)] = do
+apply (OpenWriteConstAST _) [sys, (ListValue pathList)] = do
     e <- try (openFile path WriteMode) :: IO (Either IOException Handle)
     case e of
         (Left e)  -> return $ TupleValue [falseValue, sys', FileValue Nothing 0]
@@ -352,10 +356,10 @@ apply OpenWriteConstAST [sys, (ListValue pathList)] = do
         path = valueListToString pathList
         sys' = advanceSystem sys
 
-apply CloseConstAST [sys, (FileValue Nothing _)] = do
+apply (CloseConstAST _) [sys, (FileValue Nothing _)] = do
     return $ TupleValue [falseValue, advanceSystem sys]
 
-apply CloseConstAST [sys, (FileValue (Just handle) _)] = do
+apply (CloseConstAST _) [sys, (FileValue (Just handle) _)] = do
     e <- try (hClose handle) :: IO (Either IOException ())
     case e of
         (Left e)  -> return $ TupleValue [falseValue, sys']
@@ -363,10 +367,10 @@ apply CloseConstAST [sys, (FileValue (Just handle) _)] = do
     where
         sys' = advanceSystem sys
 
-apply DeleteConstAST [sys, (FileValue Nothing _)] = do
+apply (DeleteConstAST _) [sys, (FileValue Nothing _)] = do
     return $ TupleValue [falseValue, advanceSystem sys]
 
-apply DeleteConstAST [sys, (ListValue pathList)] = do
+apply (DeleteConstAST _) [sys, (ListValue pathList)] = do
     e <- try (removeFile path) :: IO (Either IOException ())
     case e of
         (Left e)  -> return $ TupleValue [falseValue, sys']
@@ -375,21 +379,21 @@ apply DeleteConstAST [sys, (ListValue pathList)] = do
         path = valueListToString pathList
         sys' = advanceSystem sys
 
-apply ReadConstAST [file@(FileValue Nothing _)] = do
+apply (ReadConstAST _) [file@(FileValue Nothing _)] = do
     return $ TupleValue [falseValue, emptyCharValue, advanceFile file]
 
-apply ReadConstAST [file@(FileValue (Just handle) _)] = do
+apply (ReadConstAST _) [file@(FileValue (Just handle) _)] = do
     e <- try (hGetChar handle) :: IO (Either IOException Char)
     case e of
         (Left e)   -> return $ TupleValue [falseValue, emptyCharValue, f]
-        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST ch), f]
+        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST ch initUtilData), f]
     where
         f = advanceFile file
 
-apply WriteConstAST [_, file@(FileValue Nothing _)] = do
+apply (WriteConstAST _) [_, file@(FileValue Nothing _)] = do
     return $ TupleValue [falseValue, advanceFile file]
 
-apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue (Just handle) _)] = do
+apply (WriteConstAST _) [(ConstValue (CharConstAST ch _)), file@(FileValue (Just handle) _)] = do
     e <- try (hPutChar handle ch) :: IO (Either IOException ())
     case e of
         (Left e)  -> return $ TupleValue [falseValue, f]
@@ -397,7 +401,7 @@ apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(FileValue (Just handl
     where
         f = advanceFile file
 
-apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "stdout" _)] = do
+apply (WriteConstAST _) [(ConstValue (CharConstAST ch _)), file@(PredefinedFileValue "stdout" _)] = do
     e <- try (putChar ch) :: IO (Either IOException ())
     hFlush stdout
     case e of
@@ -406,47 +410,47 @@ apply WriteConstAST [(ConstValue (CharConstAST ch)), file@(PredefinedFileValue "
     where
         f = advanceFile file
 
-apply ReadConstAST [file@(PredefinedFileValue "stdin" _)] = do
+apply (ReadConstAST _) [file@(PredefinedFileValue "stdin" _)] = do
     e <- try getChar :: IO (Either IOException Char)
     case e of
         (Left e)  -> return $ TupleValue [falseValue, emptyCharValue, f]
-        (Right c) -> return $ TupleValue [trueValue, (ConstValue (CharConstAST c)), f]
+        (Right c) -> return $ TupleValue [trueValue, (ConstValue (CharConstAST c initUtilData)), f]
     where
         f = advanceFile file
 
 -- string conversion operations
-apply ShowConstAST [ConstValue (CharConstAST c)] = return $ ListValue [ConstValue (CharConstAST c)]
-apply ShowConstAST [ConstValue (BoolConstAST b)] = return $ ListValue (stringToValueList (show b))
-apply ShowConstAST [ConstValue (FloatConstAST f)] = return $ ListValue (stringToValueList (show f))
-apply ShowConstAST [ConstValue (IntConstAST i)] = return $ ListValue (stringToValueList (show i))
-apply ShowConstAST [TerValue t] = return $ ListValue (stringToValueList (typeName t))
-apply ShowConstAST [TerConsValue t v] = do
-    res <- apply ShowConstAST [v]
+apply (ShowConstAST _) [ConstValue (CharConstAST c _)] = return $ ListValue [ConstValue (CharConstAST c initUtilData)]
+apply (ShowConstAST _) [ConstValue (BoolConstAST b _)] = return $ ListValue (stringToValueList (show b))
+apply (ShowConstAST _) [ConstValue (FloatConstAST f _)] = return $ ListValue (stringToValueList (show f))
+apply (ShowConstAST _) [ConstValue (IntConstAST i _)] = return $ ListValue (stringToValueList (show i))
+apply (ShowConstAST _) [TerValue t] = return $ ListValue (stringToValueList (typeName t))
+apply (ShowConstAST _) [TerConsValue t v] = do
+    res <- apply (ShowConstAST initUtilData) [v]
     case res of
         (ListValue l) -> return $ ListValue (stringToValueList (typeName t) ++ space ++ l)
         _             -> error "error: must be a list."
         where
-            space = [ConstValue (CharConstAST ' ')]
+            space = [ConstValue (CharConstAST ' ' initUtilData)]
 
-apply ShowConstAST [ListValue l] = do 
+apply (ShowConstAST _) [ListValue l] = do 
     l' <- showList' l
-    return $ ListValue ([ConstValue (CharConstAST '[')] ++ getValueList l' ++ [ConstValue (CharConstAST ']')])
+    return $ ListValue ([ConstValue (CharConstAST '[' initUtilData)] ++ getValueList l' ++ [ConstValue (CharConstAST ']' initUtilData)])
 
-apply ShowConstAST [TupleValue l] = do 
+apply (ShowConstAST _) [TupleValue l] = do 
     l' <- showList' l
-    return $ ListValue ([ConstValue (CharConstAST '(')] ++ getValueList l' ++ [ConstValue (CharConstAST ')')])
+    return $ ListValue ([ConstValue (CharConstAST '(' initUtilData)] ++ getValueList l' ++ [ConstValue (CharConstAST ')' initUtilData)])
 
-apply ToIntConstAST [ListValue cs] =
+apply (ToIntConstAST _) [ListValue cs] =
     return $ case readMaybe string of
-                Nothing  -> TupleValue [ConstValue (BoolConstAST False), ConstValue (IntConstAST (-1))]
-                (Just i) -> TupleValue [ConstValue (BoolConstAST True), ConstValue (IntConstAST i)]
+                Nothing  -> TupleValue [ConstValue (BoolConstAST False initUtilData), ConstValue (IntConstAST (-1) initUtilData)]
+                (Just i) -> TupleValue [ConstValue (BoolConstAST True initUtilData), ConstValue (IntConstAST i initUtilData)]
         where
             string = valueListToString cs
 
-apply ToFloatConstAST [ListValue cs] =
+apply (ToFloatConstAST _) [ListValue cs] =
     return $ case readMaybe string of
-        Nothing  -> TupleValue [ConstValue (BoolConstAST False), ConstValue (FloatConstAST (-1.0))]
-        (Just f) -> TupleValue [ConstValue (BoolConstAST True), ConstValue (FloatConstAST f)]
+        Nothing  -> TupleValue [ConstValue (BoolConstAST False initUtilData), ConstValue (FloatConstAST (-1.0) initUtilData)]
+        (Just f) -> TupleValue [ConstValue (BoolConstAST True initUtilData), ConstValue (FloatConstAST f initUtilData)]
         where
             string = valueListToString cs
 
@@ -458,12 +462,12 @@ getValueList _ = error "error: value is not a list."
 
 showList' :: [Values] -> IO Values
 showList' []     = return $ ListValue []
-showList' [v]    = apply ShowConstAST [v]
+showList' [v]    = apply (ShowConstAST initUtilData) [v]
 showList' (v:vs) = do
-    v' <- apply ShowConstAST [v]
+    v' <- apply (ShowConstAST initUtilData) [v]
     vs' <- showList' vs
     case (v', vs') of
         (ListValue l1, ListValue l2) -> return $ ListValue (l1 ++ spacer ++ l2)
         _ -> error "error: must be a list."
         where
-            spacer = [ConstValue (CharConstAST ','), ConstValue (CharConstAST ' ')]
+            spacer = [ConstValue (CharConstAST ',' initUtilData), ConstValue (CharConstAST ' ' initUtilData)]

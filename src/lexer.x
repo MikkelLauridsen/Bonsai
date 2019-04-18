@@ -12,6 +12,7 @@ module Lexer
 , handleError
 , getCurrentLine
 , getLineNumber
+, AlexUserState(..)
 ) where
 
 import Prelude hiding (stringTerminalToToken)
@@ -259,7 +260,7 @@ setPosition pos = do
 
 -- Token format used by the lexer and parser:
 -- a terminal and the current position
-data Token = Token AlexPosn Terminal deriving (Show)
+data Token = Token AlexUserState Terminal
 
 -- terminalString returns the string representation of input Terminal
 -- Used for error messages
@@ -303,7 +304,9 @@ terminalString EOFToken                   = "$"
 
 -- convert string to terminal function to token
 stringTerminalToToken :: (String -> Terminal) -> AlexAction Token
-stringTerminalToToken func = \(pos, _, _, string) count -> return (Token pos (func (take count string)))
+stringTerminalToToken func = \(_, _, _, string) count -> do
+     userState <- alexGetUserState
+     return (Token userState (func (take count string)))
 
 -- convert terminal to token
 terminalToToken :: Terminal -> AlexAction Token
@@ -326,10 +329,11 @@ addToString = \(pos, _, _, string) count -> do
 
 -- exit the string_state and return the new string token
 finishString :: AlexAction Token
-finishString = \(pos, _, _, string) count -> do
+finishString = \(_, _, _, string) count -> do
     string <- getStringValue
     setState DefaultState
-    return (Token pos (StringToken string))
+    userState <- alexGetUserState
+    return (Token userState (StringToken string))
 
 -- enter the char_state
 enterChar :: AlexAction Token
@@ -355,9 +359,10 @@ finishChar :: AlexAction Token
 finishChar = \input@(pos, _, _, string) count -> do
     (char, hasChar) <- getCharValue
     setState DefaultState
+    userState <- alexGetUserState
     if hasChar == False
       then (specialError emptyCharError) input count
-      else return (Token pos (CharToken char))
+      else return (Token userState (CharToken char))
 
 -- convert string sequence to escaped char
 convert_to_char :: String -> Char
@@ -383,7 +388,9 @@ alexEOF = do
   case state of
     StringState  -> handleError pos "string not closed at end of file"
     CharState    -> handleError pos "char not closed at end of file"
-    DefaultState -> return (Token pos EOFToken)
+    DefaultState -> do 
+        userState <- alexGetUserState
+        return (Token userState EOFToken)
 
 -- scanBonsai recursively scans the specified file,
 -- until a regular expression recognizes the sequence

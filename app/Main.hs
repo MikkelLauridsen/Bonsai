@@ -55,7 +55,7 @@ getSource current = do
     line <- cmdPrompt
     case line of
         "@EXIT"     -> return ExitUser
-        "@RUN"      -> return $ RunUser (current >>= (++ ""))
+        "@RUN"      -> return $ RunUser (current >>= (++ "")) -- TODO: try const instead of (++ "") !!
         "@PRETTIFY" -> return $ PrettifyUser (current >>= (++ ""))
         "@RESET"    -> getSource []
         "@UNDO"     -> case current of

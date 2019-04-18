@@ -16,81 +16,81 @@ instance PrettyShow TypeId where
     prettyShow (TypeId typeName) ic = typeName
 
 instance PrettyShow VarId where
-    prettyShow (VarId varName) ic = varName
+    prettyShow (VarId varName _) ic = varName
 
 instance PrettyShow ProgAST where
-    prettyShow (ProgAST types vars) ic = 
+    prettyShow (ProgAST types vars _) ic = 
         prettyShow types ic ++
         prettyShow vars ic
         
 instance PrettyShow CompTypeAST where
-    prettyShow (CompSimpleAST typeId) ic = prettyShow typeId ic
-    prettyShow (CompListAST compType) ic = "[" ++ prettyShow compType ic ++ "]"
-    prettyShow (CompTupleAST compTypeList) ic = "(" ++ prettyShowList compTypeList ic ", " ++ ")"
-    prettyShow (CompFuncAST compType1 compType2) ic = "(" ++ prettyShow compType1 ic ++ " -> " ++ prettyShow compType2 ic ++ ")" 
+    prettyShow (CompSimpleAST typeId _) ic = prettyShow typeId ic
+    prettyShow (CompListAST compType _) ic = "[" ++ prettyShow compType ic ++ "]"
+    prettyShow (CompTupleAST compTypeList _) ic = "(" ++ prettyShowList compTypeList ic ", " ++ ")"
+    prettyShow (CompFuncAST compType1 compType2 _) ic = "(" ++ prettyShow compType1 ic ++ " -> " ++ prettyShow compType2 ic ++ ")" 
       
 instance PrettyShow TypeVarAST where
-    prettyShow (UntypedVarAST varId) ic = prettyShow varId ic
-    prettyShow (TypedVarAST varId compType) ic = prettyShow varId ic ++ "::" ++ prettyShow compType ic
+    prettyShow (UntypedVarAST varId _) ic = prettyShow varId ic
+    prettyShow (TypedVarAST varId compType _) ic = prettyShow varId ic ++ "::" ++ prettyShow compType ic
 
 instance PrettyShow TypeDclAST where
-    prettyShow (TypeDclAST typeId cons rest) ic = 
+    prettyShow (TypeDclAST typeId cons rest _) ic = 
         indent ic ++ "type " ++ prettyShow typeId ic ++ " = {\n" ++ prettyShowList cons (ic + 1) "" ++ 
         indent ic ++ "}\n" ++
         "\n" ++ prettyShow rest ic
     prettyShow (EpsTypeDclAST) ic = ""
 
 instance PrettyShow ConsAST where
-    prettyShow (SingleConsAST typeId) ic = 
+    prettyShow (SingleConsAST typeId _) ic = 
         indent ic ++ "| " ++ prettyShow typeId ic ++ "\n"
-    prettyShow (DoubleConsAST typeId compType) ic =
+    prettyShow (DoubleConsAST typeId compType _) ic =
         indent ic ++ "| " ++ prettyShow typeId ic ++ " " ++ prettyShow compType ic ++ "\n"
 
 instance PrettyShow VarDclAST where
-    prettyShow (VarDclAST typeVar expr rest) ic = 
+    prettyShow (VarDclAST typeVar expr rest _) ic = 
         indent ic ++ "var " ++ prettyShow typeVar ic ++ " = " ++ prettyShow expr ic ++
         "\n" ++ prettyShow rest ic
     prettyShow (EpsVarDclAST) ic = ""
 
 instance PrettyShow PredAST where
-    prettyShow (PredExprAST expr) ic = prettyShow expr ic
-    prettyShow (PredWildAST) ic = "?"
+    prettyShow (PredExprAST expr _) ic = prettyShow expr ic
+    prettyShow (PredWildAST _) ic = "?"
 
 
 instance PrettyShow ExprAST where
-    prettyShow (VarExprAST varId) ic = prettyShow varId ic
-    prettyShow (TypeExprAST typeId) ic = prettyShow typeId ic
-    prettyShow (ConstExprAST const') ic = prettyShow const' ic
+    prettyShow (VarExprAST varId _) ic = prettyShow varId ic
+    prettyShow (TypeExprAST typeId _) ic = prettyShow typeId ic
+    prettyShow (ConstExprAST const' _) ic = prettyShow const' ic
     --  (...)
-    prettyShow (ParenExprAST expr) ic = "(" ++ prettyShow expr ic ++ ")"
+    prettyShow (ParenExprAST expr _) ic = "(" ++ prettyShow expr ic ++ ")"
     --  (...) => {...}
-    prettyShow (LambdaExprAST varId expr) ic = "(" ++ prettyShow varId ic ++ ") => {" ++ 
+    prettyShow (LambdaExprAST varId expr _) ic = "(" ++ prettyShow varId ic ++ ") => {" ++ 
         indent ic ++ prettyShow expr (ic + 1) ++
         indent ic ++ "}" 
     --  expr1 expr2
-    prettyShow (FunAppExprAST expr1 expr2) ic = "(" ++ prettyShow expr1 ic ++ " " ++ prettyShow expr2 ic ++ ")"
+    prettyShow (FunAppExprAST expr1 expr2 _) ic = "(" ++ prettyShow expr1 ic ++ " " ++ prettyShow expr2 ic ++ ")"
     -- (...)
-    prettyShow (TupleExprAST elements) ic = "(" ++ prettyShowList elements ic ", " ++ ")" 
+    prettyShow (TupleExprAST elements _) ic = "(" ++ prettyShowList elements ic ", " ++ ")" 
     --  [...]
-    prettyShow (ListExprAST elements) ic = "[" ++ prettyShowList elements ic ", " ++ "]"
+    prettyShow (ListExprAST elements _) ic = "[" ++ prettyShowList elements ic ", " ++ "]"
     --  match {
     --      ...
     --  }
-    prettyShow (MatchExprAST expr matchBodies) ic = 
+    prettyShow (MatchExprAST expr matchBodies _) ic = 
         "\n" ++ indent ic ++ "match " ++ prettyShow expr ic ++ " {\n" ++ 
         prettyShowMatchBodies matchBodies (ic + 1) ++
         indent ic ++ "}\n"
     --  case {
     --      ...
     --  }
-    prettyShow (CaseExprAST cases) ic = 
+    prettyShow (CaseExprAST cases _) ic = 
         "\n" ++ indent ic ++ "case {\n" ++
         prettyShowCaseBodies cases (ic + 1) ++
         "\n" ++ indent ic ++ "}\n"
     -- let ... = ... in (
     --      ...
     --  )
-    prettyShow (LetInExprAST typeVar expr1 expr2) ic = 
+    prettyShow (LetInExprAST typeVar expr1 expr2 _) ic = 
         "\n" ++ indent ic ++ "let " ++ prettyShow typeVar ic ++ " = " ++ prettyShow expr1 ic ++ " in (" ++ 
         prettyShow expr2 (ic + 1) ++ "\n" ++
         indent ic ++ ")"
@@ -108,43 +108,43 @@ prettyShowCaseBodies ((pred, expr):xs) ic =
     indent ic ++ "| " ++ prettyShow pred ic ++ " -> " ++ prettyShow expr ic ++ "\n"  ++ prettyShowCaseBodies xs ic
 
 instance PrettyShow PatternAST where
-    prettyShow (ConstPatternAST const') ic = prettyShow const' ic
-    prettyShow (VarPatternAST varId) ic = prettyShow varId ic
-    prettyShow (TypePatternAST typeId) ic = prettyShow typeId ic
-    prettyShow (TypeConsPatternAST typeId pattern) ic = prettyShow typeId ic ++ " " ++ prettyShow pattern ic
-    prettyShow (ListPatternAST patterns) ic = "[" ++ prettyShowList patterns ic ", " ++ "]"
-    prettyShow (TuplePatternAST patterns) ic = "(" ++ prettyShowList patterns ic ", " ++ ")"
+    prettyShow (ConstPatternAST const' _) ic = prettyShow const' ic
+    prettyShow (VarPatternAST varId _) ic = prettyShow varId ic
+    prettyShow (TypePatternAST typeId _) ic = prettyShow typeId ic
+    prettyShow (TypeConsPatternAST typeId pattern _) ic = prettyShow typeId ic ++ " " ++ prettyShow pattern ic
+    prettyShow (ListPatternAST patterns _) ic = "[" ++ prettyShowList patterns ic ", " ++ "]"
+    prettyShow (TuplePatternAST patterns _) ic = "(" ++ prettyShowList patterns ic ", " ++ ")"
     --  (..:..)
-    prettyShow (DecompPatternAST pattern varId) ic = "(" ++ prettyShow pattern ic ++ ":" ++ prettyShow varId ic ++ ")"
-    prettyShow (WildPatternAST) ic = "?"
+    prettyShow (DecompPatternAST pattern varId _) ic = "(" ++ prettyShow pattern ic ++ ":" ++ prettyShow varId ic ++ ")"
+    prettyShow (WildPatternAST _) ic = "?"
 
 instance PrettyShow ConstAST where
-    prettyShow (IntConstAST val) ic = show val
-    prettyShow (BoolConstAST val) ic = show val
-    prettyShow (FloatConstAST val) ic = show val
-    prettyShow (CharConstAST val) ic = show val
-    prettyShow (UnaryMinusConstAST) ic = "~"
-    prettyShow (PlusConstAST) ic = "+"
-    prettyShow (MinusConstAST) ic = "-"
-    prettyShow (TimesConstAST) ic = "*"
-    prettyShow (DivideConstAST) ic = "/"
-    prettyShow (ModuloConstAST) ic = "%"
-    prettyShow (EqualsConstAST) ic = "="
-    prettyShow (NotConstAST) ic = "!"
-    prettyShow (GreaterConstAST) ic = ">"
-    prettyShow (LessConstAST) ic = "<"
-    prettyShow (GreaterOrEqualConstAST) ic = ">="
-    prettyShow (LessOrEqualConstAST) ic = "<="
-    prettyShow (AppenConstAST) ic = ":"
-    prettyShow (ConcatenateConstAST) ic = "++"
-    prettyShow (AndConstAST) ic = "&&"
-    prettyShow (OrConstAST) ic = "||"
-    prettyShow (OpenReadConstAST) ic = "open_read"
-    prettyShow (OpenWriteConstAST) ic = "open_write"
-    prettyShow (CloseConstAST) ic = "close"
-    prettyShow (ReadConstAST) ic = "read"
-    prettyShow (WriteConstAST) ic = "write"
-    prettyShow (DeleteConstAST) ic = "delete"
-    prettyShow (ShowConstAST) ic = "show"
-    prettyShow (ToIntConstAST) ic = "to_int"
-    prettyShow (ToFloatConstAST) ic = "to_float"
+    prettyShow (IntConstAST val _) ic = show val
+    prettyShow (BoolConstAST val _) ic = show val
+    prettyShow (FloatConstAST val _) ic = show val
+    prettyShow (CharConstAST val _) ic = show val
+    prettyShow (UnaryMinusConstAST _) ic = "~"
+    prettyShow (PlusConstAST _) ic = "+"
+    prettyShow (MinusConstAST _) ic = "-"
+    prettyShow (TimesConstAST _) ic = "*"
+    prettyShow (DivideConstAST _) ic = "/"
+    prettyShow (ModuloConstAST _) ic = "%"
+    prettyShow (EqualsConstAST _) ic = "=="
+    prettyShow (NotConstAST _) ic = "!"
+    prettyShow (GreaterConstAST _) ic = ">"
+    prettyShow (LessConstAST _) ic = "<"
+    prettyShow (GreaterOrEqualConstAST _) ic = ">="
+    prettyShow (LessOrEqualConstAST _) ic = "<="
+    prettyShow (AppenConstAST _) ic = ":"
+    prettyShow (ConcatenateConstAST _) ic = "++"
+    prettyShow (AndConstAST _) ic = "&&"
+    prettyShow (OrConstAST _) ic = "||"
+    prettyShow (OpenReadConstAST _) ic = "open_read"
+    prettyShow (OpenWriteConstAST _) ic = "open_write"
+    prettyShow (CloseConstAST _) ic = "close"
+    prettyShow (ReadConstAST _) ic = "read"
+    prettyShow (WriteConstAST _) ic = "write"
+    prettyShow (DeleteConstAST _) ic = "delete"
+    prettyShow (ShowConstAST _) ic = "show"
+    prettyShow (ToIntConstAST _) ic = "to_int"
+    prettyShow (ToFloatConstAST _) ic = "to_float"

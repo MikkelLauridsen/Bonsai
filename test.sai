@@ -19,23 +19,23 @@ var readLn::(File* -> (Bool, String, File*)) = f => {
     in (case {
         | succ == true -> 
         match c {
-        | '\n' -> (true, ['\n'], f')
-        | ?    -> let (succ2, s, f2') = readLn f'
-                  in (case {
-                      | succ2 == true -> (true, (c:s), f2')
-                      | ?             -> (false, (c:s), f2')
-                  })
-        }
+            | '\n' -> (true, ['\n'], f')
+            | ?    -> let (succ2, s, f2') = readLn f'
+                        in (case {
+                             | succ2 == true -> (true, (c:s), f2')
+                             | ?             -> (false, (c:s), f2')
+                            })
+                }
         | ?            -> (false, [c], f')
     })
 }
 
-var reverse::(String -> String) = s => {
-    match s {
-        | []     -> []
-        | (c:cs) -> reverse cs ++ [c]
-    }
-} 
+#var reverse::(String -> String) = s => {
+#    match s {
+#        | []     -> []
+#        | (c:cs) -> reverse cs ++ [c]
+#    }
+#} 
 
 var prompt = s => {
     outf => {
@@ -53,6 +53,7 @@ var prompt = s => {
         }
     }
 }
+
 
 var main = sys => {
     let (succ, line, stdout', stdin') = prompt "input int-value: " stdout stdin
