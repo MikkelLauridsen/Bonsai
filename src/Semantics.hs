@@ -80,24 +80,37 @@ evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
 evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (sortsType typeId))
 evaluateTermCons (DoubleConsAST t compType _) typeId = (t, FuncSig (sorts compType) (sortsType typeId))
 
-interpret :: ProgAST -> IO (Either String Values)
-interpret (ProgAST dt dv utilData) = do
+formatErr :: String -> UtilData -> String
+formatErr err UtilData{position=pos, sourceLine=line} = 
+    let (l, c, o) = pos
+        in (show l ++ ":" ++ show c ++ ": error: " ++ 
+            err ++ " in:\n" ++
+            (Prelude.take (o - 1) (repeat ' ')) ++ line ++ "\n" ++ 
+            (getIndicator (o - 1) (length line)))
+
+getIndicator :: Int -> Int -> String
+getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')
+
+interpret :: FilePath -> ProgAST -> IO (Either String Values)
+interpret path (ProgAST dt dv utilData) = do
     maybeSigma <- evalTypeDcl dt (Set.empty)
     case maybeSigma of
-        (Left msg)    -> return $ Left msg
+        (Left msg)    -> return $ Left (path ++ ":" ++ msg)
         (Right sigma) -> do
             maybeEnv <- evalVarDcl dv initEnv sigma
             case maybeEnv of
-                (Left msg)  -> return $ Left msg
+                (Left msg)  -> return $ Left (path ++ ":" ++ msg)
                 (Right env) -> do
                     let maybeMain = env `getVar` (VarId "main" Untyped)
                         in case maybeMain of
-                            Nothing -> return $ Left "error: main is not defined" -- TODO: format!
-                            (Just (RecClosureValue _ x e env2 sigma2)) -> 
+                            Nothing -> return $ Left (path ++ ":--:--: error: main is not defined")
+                            (Just (RecClosureValue _ x e env2 sigma2)) -> do
                                 let env' = env2 `except` (x, SystemValue 0)
-                                    in evalExpr e env' sigma2
-                            _ -> return $ Left "error: invalid main signature." -- TODO: format!
-            
+                                res <- evalExpr e env' sigma2
+                                case res of
+                                    (Left msg)      -> return $ Left (path ++ ":" ++ msg)
+                                    value@(Right _) -> return value
+                            _ -> return $ Left (path ++ ":--:--: error: invalid main signature")       
     where
         stdin' = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
@@ -109,7 +122,7 @@ evalTypeDcl dt sigma =
         EpsTypeDclAST                       -> return $ Right sigma
         TypeDclAST typeId cons dt' utilData -> do
             if sigma `conflicts` sigma2
-                then return $ Left "error: cannot redefine termconstructor." -- TODO: format!
+                then return $ Left (formatErr "cannot redefine termconstructor" utilData)
                 else evalTypeDcl dt' (sigma `unionSig` sigma2)
             where
                 sigma2 = (Set.fromList [evaluateTermCons ts typeId | ts <- cons])
@@ -120,7 +133,7 @@ evalVarDcl dv env sigma =
         EpsVarDclAST                   -> return $ Right env
         VarDclAST xt expr dv' utilData ->
             case Map.lookup x env of
-                (Just _) -> return $ Left "error: cannot redeclare variable." -- TODO: format!
+                (Just _) -> return $ Left (formatErr "cannot redeclare variable" utilData)
                 Nothing  -> do
                     maybeValue <- evalExpr expr env sigma
                     case maybeValue of
@@ -137,26 +150,26 @@ evalVarDcl dv env sigma =
 evalExpr :: ExprAST -> Env -> Sig -> IO (Either String Values)
 evalExpr expr env sigma = do
     case expr of
-        (VarExprAST varId _)            -> evalVarExpr varId env sigma
-        (TypeExprAST typeId _)          -> return $ Right (TerValue typeId)
-        (ConstExprAST c _)              -> return $ Right (ConstValue c)
-        (ParenExprAST expr' _)          -> evalExpr expr' env sigma
-        (LambdaExprAST varId expr' _)   -> return $ Right (ClosureValue varId expr' env sigma)
-        (FunAppExprAST expr1 expr2 _)   -> evalFunApp expr1 expr2 env sigma
-        (TupleExprAST exprs _)          -> evalTuple exprs env sigma
-        (ListExprAST exprs _)           -> evalList exprs env sigma
-        (CaseExprAST branches _)        -> evalCase branches env sigma
-        (LetInExprAST xt expr1 expr2 _) -> evalLetIn xt expr1 expr2 env sigma
-        (MatchExprAST expr' branches _) -> do
+        (VarExprAST varId utilData)            -> evalVarExpr varId env sigma utilData
+        (TypeExprAST typeId _)                 -> return $ Right (TerValue typeId)
+        (ConstExprAST c _)                     -> return $ Right (ConstValue c)
+        (ParenExprAST expr' _)                 -> evalExpr expr' env sigma
+        (LambdaExprAST varId expr' _)          -> return $ Right (ClosureValue varId expr' env sigma)
+        (FunAppExprAST expr1 expr2 _)          -> evalFunApp expr1 expr2 env sigma
+        (TupleExprAST exprs _)                 -> evalTuple exprs env sigma
+        (ListExprAST exprs _)                  -> evalList exprs env sigma
+        (CaseExprAST branches utilData)        -> evalCase branches env sigma utilData
+        (LetInExprAST xt expr1 expr2 _)        -> evalLetIn xt expr1 expr2 env sigma
+        (MatchExprAST expr' branches utilData) -> do
             maybeValue <- evalExpr expr' env sigma
             case maybeValue of
                 err@(Left _) -> return err 
-                (Right value) -> evalMatch value branches env sigma
+                (Right value) -> evalMatch value branches env sigma utilData
 
-evalVarExpr :: VarId -> Env -> Sig -> IO (Either String Values)
-evalVarExpr varId env _ =
+evalVarExpr :: VarId -> Env -> Sig -> UtilData -> IO (Either String Values)
+evalVarExpr varId env _ utilData =
     case maybeValue of
-        Nothing      -> return $ Left ("error: variable '" ++ varName varId ++ "' is out of scope.") -- TODO: format!
+        Nothing      -> return $ Left (formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData)
         (Just value) -> return $ Right value
     where
         maybeValue = env `getVar` varId
@@ -207,7 +220,7 @@ evalFunApp expr1 expr2 env sigma = do
                         (ClosureValue x e env' sigma')      -> evalExpr e (env' `except` (x, v')) sigma'
                         (RecClosureValue f x e env' sigma') -> evalExpr e ((env' `except` (x, v')) `except` (f, v)) sigma'   
                         (TerValue t)                        -> return $ Right (TerConsValue t v')
-                        _                                   -> error "error: invalid function type." -- should be prevented by typesystem
+                        _                                   -> error "invalid function type." -- should be prevented by typesystem
 
 partiallyApply :: ConstAST -> Values -> IO Values
 partiallyApply fun@(UnaryMinusConstAST _) value     = apply fun [value]
@@ -235,7 +248,7 @@ partiallyApply fun@(OpenWriteConstAST _) value      = return $ PartialValue (\y 
 partiallyApply fun@(CloseConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(WriteConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(DeleteConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
-partiallyApply _ _                          = error "error: cannot partially apply a non-function constant."
+partiallyApply _ _                          = error "cannot partially apply a non-function constant." -- should be prevented by typesystem
 
 evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO (Either String Values)
 evalLetIn xt expr1 expr2 env sigma = do
@@ -251,16 +264,16 @@ evalLetIn xt expr1 expr2 env sigma = do
                     UntypedVarAST varId _ -> varId
                     TypedVarAST varId _ _ -> varId
 
-evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> IO (Either String Values)
-evalCase [] _ _ = return $ Left "error: non-exhaustive case branches." -- TODO: format!
-evalCase ((pred', expr'):branches') env sigma = do
+evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
+evalCase [] _ _ utilData = return $ Left (formatErr "non-exhaustive case branches" utilData)
+evalCase ((pred', expr'):branches') env sigma utilData = do
     maybeRes <- handlePred pred' env sigma
     case maybeRes of
         (Left msg)  -> return $ Left msg
         (Right res) ->
             if res
                 then evalExpr expr' env sigma
-                else evalCase branches' env sigma
+                else evalCase branches' env sigma utilData
 
 handlePred :: PredAST -> Env -> Sig -> IO (Either String Bool)
 handlePred (PredWildAST _) _ _            = return $ Right True
@@ -271,19 +284,21 @@ handlePred (PredExprAST expr _) env sigma = do
         (Right value) ->
             case value of
                 (ConstValue (BoolConstAST b _)) -> return $ Right b
-                _                             -> error "error: case condition must be a predicate or wildcard."
+                _                             -> error "case condition must be a predicate or wildcard." -- should be prevented by typesystem
 
 
-evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Sig -> IO (Either String Values)
-evalMatch _ [] _ _                                 = return $ Left "error: non-exhaustive match branches." -- TODO: format!
-evalMatch value ((pat', expr'):branches') env sigma =
+evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
+evalMatch _ [] _ _ utilData                                  = return $ Left (formatErr "non-exhaustive match branches" utilData)
+evalMatch value ((pat', expr'):branches') env sigma utilData =
     case match value pat' sigma of
-        MatchFail      -> evalMatch value branches' env sigma
+        MatchFail      -> evalMatch value branches' env sigma utilData
         Bindings delta -> evalExpr expr' (applyBindings env delta) sigma
 
 applyBindings :: Env -> [Binding] -> Env -- TODO! test intersection ..
 applyBindings env []     = env
 applyBindings env (b:bs) = applyBindings (env `except` b) bs
+
+-- TODO! add error messages to match ... may want to test signature too?
 
 match :: Values -> PatternAST -> Sig -> Bindings
 match value (VarPatternAST varId _) _ = Bindings [(varId, value)]

@@ -226,6 +226,7 @@ convertWord :: String -> String
 convertWord "unary_op" = "a unary operator"
 convertWord "var_id" = "a variable name"
 convertWord "type_id" = "a type name"
+convertWord "io_op" = "an I/O operation"
 convertWord "string" = "a string"
 convertWord "char" = "a char"
 convertWord "float" = "a float"

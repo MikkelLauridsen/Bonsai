@@ -1,4 +1,13 @@
 
+type Test1 = {
+    | One
+    | Two
+}
+
+type Test1 = { # TODO: don't allow this!
+    | Three # TODO: don't allow this! 
+    | Three
+}
 
 var writes::(String -> (File* -> (Bool, File*))) = s => {
     f => {
@@ -54,18 +63,23 @@ var prompt = s => {
     }
 }
 
-
 var main = sys => {
-    let (succ, line, stdout', stdin') = prompt "input int-value: " stdout stdin
-    in (match succ {
-        | true -> 
-        match (to_int line) {
-            | (false, ?) -> writes "invalid string format.\n" stdout'
-            | (?, val)   -> writes ("times 2: " ++ (show (2 * val))) stdout' 
-        }
-        | ?    -> writes "could not access file.\n" stdout'
-    })
+    case {
+        | true == false -> writes "oi m8!\n" stdout
+    }
 }
+
+#var main = sys => {
+#    let (succ, line, stdout', stdin') = prompt "input int-value: " stdout stdin
+#    in (match succ {
+#        | true -> 
+#        match (to_int line) {
+#            | (false, ?) -> writes "invalid string format.\n" stdout'
+#            | (?, val)   -> writes ("times 2: " ++ (show (2 * val))) stdout' 
+#        }
+#        | ?    -> writes "could not access file.\n" stdout'
+#    })
+#}
 
 #var main::(System* -> (Bool, File*)) = sys => {
 #    let (succ, line, stdin') = readLn stdin 

@@ -39,7 +39,7 @@ prettifyFile file = do
 fromFile :: String -> IO ()
 fromFile file = do
     result <- fmap (parseBonsai file) (readFile file)
-    runInterpret result
+    runInterpret file result
 
 -- UserAction is used by the interactive interpreter to specify user actions,
 -- such as interpreting or prettifying the user's input
@@ -74,17 +74,17 @@ interactive = do
             putStrLn $ "ERROR: " ++ err ++ "\n"
             interactive
         RunUser input      -> do
-            runInterpret (parse input)
+            runInterpret "<stdin>" (parse input)
             interactive
         PrettifyUser input -> do
             putStrLn $ prettify (parse input)
             interactive
     where parse = parseBonsai "<stdin>"
 
-runInterpret :: Either String ProgAST -> IO ()
-runInterpret (Left err) = putStrLn err
-runInterpret (Right ast) = do 
-    res <- interpret ast
+runInterpret :: FilePath -> Either String ProgAST -> IO ()
+runInterpret _ (Left err) = putStrLn err
+runInterpret path (Right ast) = do 
+    res <- interpret path ast
     case res of
         (Left msg) -> putStrLn msg
         (Right _)  -> putChar '\n'
