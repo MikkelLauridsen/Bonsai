@@ -84,8 +84,10 @@ interactive = do
 runInterpret :: Either String ProgAST -> IO ()
 runInterpret (Left err) = putStrLn err
 runInterpret (Right ast) = do 
-    _ <- interpret ast
-    putChar '\n'
+    res <- interpret ast
+    case res of
+        (Left msg) -> putStrLn msg
+        (Right _)  -> putChar '\n'
 
 -- prompts the user for a line in stdin
 -- and returns the result

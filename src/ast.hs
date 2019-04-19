@@ -19,11 +19,12 @@ module Ast
 type Sort = String
 
 data UtilData = UtilData { 
-                            nodeType   :: BonsaiType -- the AST node's type
+                            nodeType   :: BonsaiType      -- the AST node's type
                           , position   :: (Int, Int, Int) -- the line and column numbers in the source file as well as indent offset
-                          , sourceLine :: String     -- the actual source line
+                          , sourceLine :: String          -- the actual source line
                          } deriving Show
 
+initUtilData :: UtilData
 initUtilData = UtilData Untyped (0, 0, 0) ""
 
 data BonsaiType = Untyped
