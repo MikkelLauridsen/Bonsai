@@ -4,7 +4,7 @@ type Test1 = {
     | Two
 }
 
-type Test1 = { # TODO: don't allow this!
+type Test2 = {
     | Three # TODO: don't allow this! 
     | Three
 }

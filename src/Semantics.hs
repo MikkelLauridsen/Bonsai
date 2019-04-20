@@ -9,6 +9,7 @@ import System.IO
 import System.Directory
 import Control.Exception
 import Text.Read
+import Data.List
 
 type Sort = String
 
@@ -37,6 +38,18 @@ data Values = ConstValue ConstAST
             | ListValue [Values]
             | PartialValue (Values -> IO Values)
 
+instance Eq Values where
+    ConstValue c1 == ConstValue c2 = c1 == c2
+    TerValue t1 == TerValue t2 = t1 == t2
+    TerConsValue t1 v1 == TerConsValue t2 v2 = t1 == t2 && v1 == v2
+    SystemValue i1 == SystemValue i2 = i1 == i2
+    FileValue m1 i1 == FileValue m2 i2 = m1 == m2 && i1 == i2
+    PredefinedFileValue s1 i1 == PredefinedFileValue s2 i2 = s1 == s2 && i1 == i2
+    TupleValue t1 == TupleValue t2 = t1 == t2
+    ListValue l1 == ListValue l2 = l1 == l2
+    _ == _ = False -- it is impossible to check whether two functions are equivalent, as their environments may vary
+
+
 sortsType :: TypeId -> Sort
 sortsType typeId = typeName typeId
 
@@ -56,25 +69,58 @@ getVar :: Env -> VarId -> Maybe Values
 getVar env var = Map.lookup var env
 
 has :: Sig -> TypeId -> Bool
-has sigma t = let termCons = Set.toList sigma
-                in hasRec termCons t
+has sigma t = hasRec (Set.toList sigma) t
 
 hasRec :: [TermConstructor] -> TypeId -> Bool
-hasRec [] _            = False
+hasRec [] _                  = False
 hasRec ((t', _):remainder) t = 
     if t' == t
         then True
         else hasRec remainder t
 
-conflicts :: Sig -> Sig -> Bool
-conflicts sigma1 sigma2 = conflictsHelper (Set.toList sigma1) sigma2
+hasType :: Sig -> Sort -> Bool
+hasType sigma s = hasTypeRec (Set.toList sigma) s
 
-conflictsHelper :: [TermConstructor] -> Sig -> Bool
-conflictsHelper [] _ = False
+hasTypeRec :: [TermConstructor] -> Sort -> Bool
+hasTypeRec [] _             = False
+hasTypeRec ((_, s2):tcs) s1 =
+    if (findType s2) == s1
+        then True
+        else hasTypeRec tcs s1
+
+findType :: Signature -> Sort
+findType (ConstSig s)  = s
+findType (FuncSig _ s) = s
+
+conflicts :: Sig -> Sig -> Maybe String
+conflicts sigma1 sigma2 = 
+    case conflictsHelper (Set.toList sigma1) sigma2 of
+        err@(Just _) -> err
+        Nothing      -> testTypes (Set.toList sigma1) sigma2                        
+
+conflictsHelper :: [TermConstructor] -> Sig -> Maybe String
+conflictsHelper [] _                     = Nothing
 conflictsHelper ((t1, _):sigma1') sigma2 =
     if sigma2 `has` t1
-        then True
+        then Just (typeName t1)
         else conflictsHelper sigma1' sigma2
+
+testTypes :: [TermConstructor] -> Sig -> Maybe String
+testTypes [] _                = Nothing
+testTypes ((_, s):tcs) sigma2 =
+    if sigma2 `hasType` (findType s)
+        then Just (findType s)
+        else testTypes tcs sigma2
+
+hasConflicts :: Sig -> Maybe String
+hasConflicts sigma = hasConflictsHelper (Set.toList sigma)
+
+hasConflictsHelper :: [TermConstructor] -> Maybe String
+hasConflictsHelper []           = Nothing
+hasConflictsHelper ((t, _):tcs) =
+    if hasRec tcs t
+        then Just (typeName t)
+        else hasConflictsHelper tcs
 
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
 evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (sortsType typeId))
@@ -92,7 +138,7 @@ getIndicator :: Int -> Int -> String
 getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')
 
 interpret :: FilePath -> ProgAST -> IO (Either String Values)
-interpret path (ProgAST dt dv utilData) = do
+interpret path (ProgAST dt dv _) = do
     maybeSigma <- evalTypeDcl dt (Set.empty)
     case maybeSigma of
         (Left msg)    -> return $ Left (path ++ ":" ++ msg)
@@ -112,20 +158,20 @@ interpret path (ProgAST dt dv utilData) = do
                                     value@(Right _) -> return value
                             _ -> return $ Left (path ++ ":--:--: error: invalid main signature")       
     where
-        stdin' = PredefinedFileValue "stdin" 0
+        stdin'  = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
         initEnv = Map.fromList [(VarId "stdin" Untyped, stdin'), (VarId "stdout" Untyped, stdout')] 
 
-evalTypeDcl :: TypeDclAST -> Sig -> IO (Either String Sig) -- TODO: what if the Type is redeclared?
+evalTypeDcl :: TypeDclAST -> Sig -> IO (Either String Sig)
 evalTypeDcl dt sigma =
     case dt of
         EpsTypeDclAST                       -> return $ Right sigma
-        TypeDclAST typeId cons dt' utilData -> do
-            if sigma `conflicts` sigma2
-                then return $ Left (formatErr "cannot redefine termconstructor" utilData)
-                else evalTypeDcl dt' (sigma `unionSig` sigma2)
+        TypeDclAST typeId cons dt' utilData ->
+            case sigma `conflicts` sigma2 of
+                (Just name) -> return $ Left (formatErr ("cannot redefine '" ++ name ++ "'") utilData)
+                Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
             where
-                sigma2 = (Set.fromList [evaluateTermCons ts typeId | ts <- cons])
+                sigma2 = (Set.fromList [evaluateTermCons ts typeId | ts <- cons]) -- TODO: check internal conflicts! (a set cannot contain multiple instances...)
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO (Either String Env)
 evalVarDcl dv env sigma =
@@ -133,7 +179,7 @@ evalVarDcl dv env sigma =
         EpsVarDclAST                   -> return $ Right env
         VarDclAST xt expr dv' utilData ->
             case Map.lookup x env of
-                (Just _) -> return $ Left (formatErr "cannot redeclare variable" utilData)
+                (Just _) -> return $ Left (formatErr ("cannot redeclare variable '" ++ (varName x) ++ "'") utilData)
                 Nothing  -> do
                     maybeValue <- evalExpr expr env sigma
                     case maybeValue of
@@ -248,7 +294,7 @@ partiallyApply fun@(OpenWriteConstAST _) value      = return $ PartialValue (\y 
 partiallyApply fun@(CloseConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(WriteConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(DeleteConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
-partiallyApply _ _                          = error "cannot partially apply a non-function constant." -- should be prevented by typesystem
+partiallyApply _ _                                  = error "cannot partially apply a non-function constant." -- should be prevented by typesystem
 
 evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO (Either String Values)
 evalLetIn xt expr1 expr2 env sigma = do
@@ -258,7 +304,7 @@ evalLetIn xt expr1 expr2 env sigma = do
         (Right value) ->
             case value of
                 (ClosureValue x' expr' env' sigma') -> evalExpr expr2 (env `except` (x, RecClosureValue x x' expr' env' sigma')) sigma
-                _                  -> evalExpr expr2 (env `except` (x, value)) sigma
+                _                                   -> evalExpr expr2 (env `except` (x, value)) sigma
             where
                 x = case xt of
                     UntypedVarAST varId _ -> varId
@@ -284,81 +330,108 @@ handlePred (PredExprAST expr _) env sigma = do
         (Right value) ->
             case value of
                 (ConstValue (BoolConstAST b _)) -> return $ Right b
-                _                             -> error "case condition must be a predicate or wildcard." -- should be prevented by typesystem
+                _                               -> error "case condition must be a predicate or wildcard." -- should be prevented by typesystem
 
 
 evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
 evalMatch _ [] _ _ utilData                                  = return $ Left (formatErr "non-exhaustive match branches" utilData)
 evalMatch value ((pat', expr'):branches') env sigma utilData =
     case match value pat' sigma of
-        MatchFail      -> evalMatch value branches' env sigma utilData
-        Bindings delta -> evalExpr expr' (applyBindings env delta) sigma
+        (Left msg)  -> return $ Left msg
+        (Right res) ->  
+            case res of
+                MatchFail      -> evalMatch value branches' env sigma utilData
+                Bindings delta -> 
+                    case findConflicts delta of
+                        (Just msg) -> return $ Left (formatErr ("variable '" ++ msg ++ "' cannot be bound more than once in the same pattern") utilData)
+                        Nothing    -> evalExpr expr' (applyBindings env delta) sigma
 
-applyBindings :: Env -> [Binding] -> Env -- TODO! test intersection ..
+findConflicts :: [Binding] -> Maybe String
+findConflicts []          = Nothing
+findConflicts ((x, _):bs) = 
+    if bs `hasVar` x
+        then Just (varName x)
+        else findConflicts bs
+
+hasVar :: [Binding] -> VarId -> Bool
+hasVar [] _          = False
+hasVar ((y, _):bs) x = 
+    if x == y
+        then True
+        else hasVar bs x 
+
+applyBindings :: Env -> [Binding] -> Env
 applyBindings env []     = env
 applyBindings env (b:bs) = applyBindings (env `except` b) bs
 
--- TODO! add error messages to match ... may want to test signature too?
+match :: Values -> PatternAST -> Sig -> Either String Bindings
+match value (VarPatternAST varId _) _ = Right (Bindings [(varId, value)])
 
-match :: Values -> PatternAST -> Sig -> Bindings
-match value (VarPatternAST varId _) _ = Bindings [(varId, value)]
-
-match _ (WildPatternAST _) _ = Bindings []
+match _ (WildPatternAST _) _ = Right (Bindings [])
 
 match (ConstValue c1) (ConstPatternAST c2 _) _ = 
     if c1 == c2 
-        then Bindings [] 
-        else MatchFail
+        then Right (Bindings []) 
+        else Right MatchFail
 
 match (TerValue t1) (TypePatternAST t2 utilData) sigma =
     if (sigma `has` t1) && (sigma `has` t2)
         then if t1 == t2 
-                then Bindings []
-                else MatchFail
-        else error "error: unknown term constructor." 
+                then Right (Bindings [])
+                else Right MatchFail
+        else Left (formatErr ("unknown term constructor '" ++ typeName t1 ++ "'") utilData)
 
 match (ListValue (v:vs)) (DecompPatternAST pat' varId _) sigma =
-    case delta of
-       MatchFail      -> MatchFail
-       Bindings binds -> Bindings ((varId, v'):binds)
+    case maybeDelta of
+        err@(Left _)  -> err
+        (Right delta) ->
+            case delta of
+               MatchFail      -> Right MatchFail
+               Bindings binds -> Right (Bindings ((varId, v'):binds))
     where
         v' = ListValue vs
-        delta = match v pat' sigma
+        maybeDelta = match v pat' sigma
 
 match (TupleValue vs) (TuplePatternAST ps _) sigma = matchMultiple vs ps sigma
 
-match (ListValue []) (ListPatternAST [] _) _ = Bindings []
+match (ListValue []) (ListPatternAST [] _) _ = Right (Bindings [])
 match (ListValue vs) (ListPatternAST ps _) sigma = matchMultiple vs ps sigma                
 
 match (TerConsValue t1 value) (TypeConsPatternAST t2 pat' utilData) sigma =
     if (sigma `has` t1) && (sigma `has` t2)
         then if t1 == t2 
                 then match value pat' sigma
-                else MatchFail
-        else error "error: unknown term constructor."
+                else Right MatchFail
+        else Left (formatErr ("unknown term constructor '" ++ typeName t1 ++ "'") utilData)
 
-match _ _ _ = MatchFail
+match _ _ _ = Right MatchFail
 
 
-matchMultiple :: [Values] -> [PatternAST] -> Sig -> Bindings
-matchMultiple [] [] _             = Bindings []
+matchMultiple :: [Values] -> [PatternAST] -> Sig -> Either String Bindings
+matchMultiple [] [] _             = Right (Bindings [])
 matchMultiple (v:vs) (p:ps) sigma =
     if (length vs) /= (length ps)
-        then MatchFail
-        else case (bind, binds) of
-                (MatchFail, _)             -> MatchFail
-                (_, MatchFail)             -> MatchFail
-                (Bindings l1, Bindings l2) -> Bindings (l1 ++ l2)
+        then Right MatchFail
+        else case maybeBind of
+                err@(Left _) -> err
+                (Right bind) ->
+                    case maybeBinds of
+                        err@(Left _)  -> err
+                        (Right binds) -> 
+                            case (bind, binds) of
+                                (MatchFail, _)             -> Right MatchFail
+                                (_, MatchFail)             -> Right MatchFail
+                                (Bindings l1, Bindings l2) -> Right (Bindings (l1 ++ l2))
             where
-                bind  = match v p sigma
-                binds = matchMultiple vs ps sigma
+                maybeBind  = match v p sigma
+                maybeBinds = matchMultiple vs ps sigma
 
-matchMultiple _ _ _ = MatchFail
+matchMultiple _ _ _ = Right MatchFail
 
 valueListToString :: [Values] -> String
 valueListToString [] = ""
 valueListToString ((ConstValue (CharConstAST c _)):cs) = (c:(valueListToString cs))
-valueListToString _ = error "error: list must be of chars."
+valueListToString _ = error "list must be of chars."
 
 stringToValueList :: String -> [Values]
 stringToValueList []     = []
@@ -366,12 +439,12 @@ stringToValueList (c:cs) = ((ConstValue (CharConstAST c initUtilData)):(stringTo
 
 advanceSystem :: Values -> Values
 advanceSystem (SystemValue sys) = SystemValue (sys + 1)
-advanceSystem _                 = error "error: cannot advance a non-system value."
+advanceSystem _                 = error "cannot advance a non-system value."
 
 advanceFile :: Values -> Values
 advanceFile (FileValue h id')          = FileValue h (id' + 1)
 advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
-advanceFile _                         = error "error: cannot advance a non-file value."
+advanceFile _                         = error "cannot advance a non-file value."
 
 trueValue = ConstValue (BoolConstAST True initUtilData)
 falseValue = ConstValue (BoolConstAST False initUtilData)
@@ -393,18 +466,18 @@ apply (DivideConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (Fl
 apply (ModuloConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]           = return $ ConstValue (IntConstAST (v1 `mod` v2) utilData)
 
 -- boolean operators
-apply (EqualsConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]         = return $ ConstValue (BoolConstAST (v1 == v2) utilData)
+apply (EqualsConstAST utilData) [v1, v2]                                                                 = return $ ConstValue (BoolConstAST (v1 == v2) utilData)
 apply (NotConstAST utilData) [ConstValue (BoolConstAST v1 _)]                                            = return $ ConstValue (BoolConstAST (not v1) utilData)
-apply (GreaterConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]        = return $ ConstValue (BoolConstAST (v1 > v2) utilData)
-apply (LessConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]           = return $ ConstValue (BoolConstAST (v1 < v2) utilData)
-apply (GreaterOrEqualConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)] = return $ ConstValue (BoolConstAST (v1 >= v2) utilData)
-apply (LessOrEqualConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]    = return $ ConstValue (BoolConstAST (v1 <= v2) utilData)
+apply (GreaterConstAST utilData) [ConstValue v1, ConstValue v2]                                          = return $ ConstValue (BoolConstAST (v1 > v2) utilData)
+apply (LessConstAST utilData) [ConstValue v1, ConstValue v2]                                             = return $ ConstValue (BoolConstAST (v1 < v2) utilData)
+apply (GreaterOrEqualConstAST utilData) [ConstValue v1, ConstValue v2]                                   = return $ ConstValue (BoolConstAST (v1 >= v2) utilData)
+apply (LessOrEqualConstAST utilData) [ConstValue v1, ConstValue v2]                                      = return $ ConstValue (BoolConstAST (v1 <= v2) utilData)
 apply (AndConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]            = return $ ConstValue (BoolConstAST (v1 && v2) utilData)
 apply (OrConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]             = return $ ConstValue (BoolConstAST (v1 || v2) utilData)
 
 -- list operations
-apply (AppenConstAST _) [v1, ListValue v2]                                                    = return $ ListValue (v1:v2)
-apply (ConcatenateConstAST _) [ListValue v1, ListValue v2]                                    = return $ ListValue (v1 ++ v2)
+apply (AppenConstAST _) [v1, ListValue v2]                                                               = return $ ListValue (v1:v2)
+apply (ConcatenateConstAST _) [ListValue v1, ListValue v2]                                               = return $ ListValue (v1 ++ v2)
 
 -- IO operations
 apply (OpenReadConstAST _) [sys, (ListValue pathList)] = do
@@ -497,7 +570,7 @@ apply (ShowConstAST _) [TerConsValue t v] = do
     res <- apply (ShowConstAST initUtilData) [v]
     case res of
         (ListValue l) -> return $ ListValue (stringToValueList (typeName t) ++ space ++ l)
-        _             -> error "error: must be a list."
+        _             -> error "must be a list."
         where
             space = [ConstValue (CharConstAST ' ' initUtilData)]
 
@@ -523,11 +596,11 @@ apply (ToFloatConstAST _) [ListValue cs] =
         where
             string = valueListToString cs
 
-apply _ _ = error "error: invalid arguments for apply."
+apply _ _ = error "invalid arguments for apply." -- should be prevented by typesystem
 
 getValueList :: Values -> [Values]
 getValueList (ListValue l) = l
-getValueList _ = error "error: value is not a list."
+getValueList _ = error "value is not a list."
 
 showList' :: [Values] -> IO Values
 showList' []     = return $ ListValue []
@@ -537,6 +610,6 @@ showList' (v:vs) = do
     vs' <- showList' vs
     case (v', vs') of
         (ListValue l1, ListValue l2) -> return $ ListValue (l1 ++ spacer ++ l2)
-        _ -> error "error: must be a list."
+        _ -> error "must be a list."
         where
             spacer = [ConstValue (CharConstAST ',' initUtilData), ConstValue (CharConstAST ' ' initUtilData)]
