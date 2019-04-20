@@ -9,7 +9,6 @@ import System.IO
 import System.Directory
 import Control.Exception
 import Text.Read
-import Data.List
 
 type Sort = String
 
@@ -112,15 +111,12 @@ testTypes ((_, s):tcs) sigma2 =
         then Just (findType s)
         else testTypes tcs sigma2
 
-hasConflicts :: Sig -> Maybe String
-hasConflicts sigma = hasConflictsHelper (Set.toList sigma)
-
-hasConflictsHelper :: [TermConstructor] -> Maybe String
-hasConflictsHelper []           = Nothing
-hasConflictsHelper ((t, _):tcs) =
+hasConflicts :: [TermConstructor] -> Maybe String
+hasConflicts []           = Nothing
+hasConflicts ((t, _):tcs) =
     if hasRec tcs t
         then Just (typeName t)
-        else hasConflictsHelper tcs
+        else hasConflicts tcs
 
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
 evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (sortsType typeId))
@@ -169,9 +165,13 @@ evalTypeDcl dt sigma =
         TypeDclAST typeId cons dt' utilData ->
             case sigma `conflicts` sigma2 of
                 (Just name) -> return $ Left (formatErr ("cannot redefine '" ++ name ++ "'") utilData)
-                Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
+                Nothing     -> 
+                    case hasConflicts list2 of
+                        (Just name) -> return $ Left (formatErr ("multiple instances of termconstructor '" ++ name ++ "'") utilData)
+                        Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
             where
-                sigma2 = (Set.fromList [evaluateTermCons ts typeId | ts <- cons]) -- TODO: check internal conflicts! (a set cannot contain multiple instances...)
+                list2  = [evaluateTermCons ts typeId | ts <- cons]
+                sigma2 = Set.fromList list2
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO (Either String Env)
 evalVarDcl dv env sigma =

@@ -5,7 +5,7 @@ type Test1 = {
 }
 
 type Test2 = {
-    | Three # TODO: don't allow this! 
+    | Three 
     | Three
 }
 
