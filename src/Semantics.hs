@@ -10,21 +10,31 @@ import System.Directory
 import Control.Exception
 import Text.Read
 
+-- types are stored as formated strings
 type Sort = String
 
-data Signature = ConstSig Sort
-               | FuncSig Sort Sort
+-- signatures for termconstructors
+data Signature = ConstSig Sort -- T
+               | FuncSig Sort Sort -- Composite -> T
                deriving (Eq, Ord)
 
+-- storage type for variabel environments
 type Binding = (VarId, Values)
 
+-- match results, either failure or a list of bindings
 data Bindings = MatchFail
-              | Bindings [(VarId, Values)]
+              | Bindings [Binding]
 
+-- storage type for sets of termconstructor names and associated signatures
 type TermConstructor = (TypeId, Signature)
+
+-- variabel environment type
 type Env = Map VarId Values
+
+-- type for sets of termconstructor names and associated signatures
 type Sig = Set TermConstructor
 
+-- Bonsai value type
 data Values = ConstValue ConstAST
             | TerValue TypeId
             | TerConsValue TypeId Values
@@ -37,6 +47,8 @@ data Values = ConstValue ConstAST
             | ListValue [Values]
             | PartialValue (Values -> IO Values)
 
+-- an instance of Eq for Values must be declared for the == operator
+-- Not all types can be compared, specifically functions
 instance Eq Values where
     ConstValue c1 == ConstValue c2 = c1 == c2
     TerValue t1 == TerValue t2 = t1 == t2
@@ -48,16 +60,16 @@ instance Eq Values where
     ListValue l1 == ListValue l2 = l1 == l2
     _ == _ = False -- it is impossible to check whether two functions are equivalent, as their environments may vary
 
-
-sortsType :: TypeId -> Sort
-sortsType typeId = typeName typeId
-
+-- implementation of the sorts function
+-- recursively constructs a formated string (Sort)
 sorts :: CompTypeAST -> Sort
-sorts (CompSimpleAST typeId _) = sortsType typeId
+sorts (CompSimpleAST typeId _) = typeName typeId
 sorts (CompListAST comp' _) = "[" ++ sorts comp' ++ "]"
 sorts (CompTupleAST comps' _) = "(" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ")"
 sorts (CompFuncAST comp1' comp2' _) = sorts comp1' ++ "->" ++ sorts comp2'
 
+-- Convenience functions for variabel environments
+-- and sets of termconstructor names and associated signatures
 except :: Env -> Binding -> Env
 except env (var, value) = Map.insertWith const var value env
 
@@ -91,6 +103,9 @@ findType :: Signature -> Sort
 findType (ConstSig s)  = s
 findType (FuncSig _ s) = s
 
+-- checks whether two sets from Sig share Type names 
+-- or termconstructor names
+-- returns the type or constructor name if so
 conflicts :: Sig -> Sig -> Maybe String
 conflicts sigma1 sigma2 = 
     case conflictsHelper (Set.toList sigma1) sigma2 of
@@ -111,6 +126,9 @@ testTypes ((_, s):tcs) sigma2 =
         then Just (findType s)
         else testTypes tcs sigma2
 
+-- checks whether a set from Sig has multiple instances
+-- of the same termconstructor
+-- returns the name if so
 hasConflicts :: [TermConstructor] -> Maybe String
 hasConflicts []           = Nothing
 hasConflicts ((t, _):tcs) =
@@ -118,21 +136,29 @@ hasConflicts ((t, _):tcs) =
         then Just (typeName t)
         else hasConflicts tcs
 
+-- constructs a TermConstructor value from an AST and a type id
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
-evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (sortsType typeId))
-evaluateTermCons (DoubleConsAST t compType _) typeId = (t, FuncSig (sorts compType) (sortsType typeId))
+evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (typeName typeId))
+evaluateTermCons (DoubleConsAST t compType _) typeId = (t, FuncSig (sorts compType) (typeName typeId))
 
+-- returns a formated error message
+-- based on input message and utility data
 formatErr :: String -> UtilData -> String
 formatErr err UtilData{position=pos, sourceLine=line} = 
     let (l, c, o) = pos
         in (show l ++ ":" ++ show c ++ ": error: " ++ 
-            err ++ " in:\n" ++
-            (Prelude.take (o - 1) (repeat ' ')) ++ line ++ "\n" ++ 
-            (getIndicator (o - 1) (length line)))
+            err ++ " in:\n" ++ (Prelude.take (o - 1) (repeat ' ')) ++ 
+            "   " ++ line ++ "\n" ++ 
+            "   " ++ (getIndicator (o - 1) (length line)))
 
 getIndicator :: Int -> Int -> String
 getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')
 
+-- start of transition rules
+-- interpret corresponds to (prog)
+-- requires an additional file path for error messages
+-- all transition rule functions either return an error message 
+-- or the specified type from the rule
 interpret :: FilePath -> ProgAST -> IO (Either String Values)
 interpret path (ProgAST dt dv _) = do
     maybeSigma <- evalTypeDcl dt (Set.empty)
@@ -144,20 +170,27 @@ interpret path (ProgAST dt dv _) = do
                 (Left msg)  -> return $ Left (path ++ ":" ++ msg)
                 (Right env) -> do
                     let maybeMain = env `getVar` (VarId "main" Untyped)
-                        in case maybeMain of
-                            Nothing -> return $ Left (path ++ ":--:--: error: main is not defined")
-                            (Just (RecClosureValue _ x e env2 sigma2)) -> do
-                                let env' = env2 `except` (x, SystemValue 0)
-                                res <- evalExpr e env' sigma2
-                                case res of
-                                    (Left msg)      -> return $ Left (path ++ ":" ++ msg)
-                                    value@(Right _) -> return value
-                            _ -> return $ Left (path ++ ":--:--: error: invalid main signature")       
+                    case maybeMain of
+                        Nothing -> return $ Left (path ++ ":--:--: error: main is not defined")
+                        (Just (RecClosureValue _ x e env2 sigma2)) -> do
+                            let env' = env2 `except` (x, SystemValue 0)
+                            res <- evalExpr e env' sigma2
+                            case res of
+                                (Left msg)      -> return $ Left (path ++ ":" ++ msg)
+                                value@(Right _) -> return value
+                        _ -> return $ Left (path ++ ":--:--: error: invalid main signature")       
     where
+        -- set up the initial variabel environment containing I/O variables
         stdin'  = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
         initEnv = Map.fromList [(VarId "stdin" Untyped, stdin'), (VarId "stdout" Untyped, stdout')] 
 
+-- implementation of (typeErk-1) and (typeErk-2)
+-- returns an error message if:
+--  1. the AST declares the same type more than once
+--  2. the same termconstructor name is declared in separate type declaractions
+--  3. the same type declaration has multiple declarations of a termconstructor name
+-- otherwise, a recursively defined set from Sig is returned
 evalTypeDcl :: TypeDclAST -> Sig -> IO (Either String Sig)
 evalTypeDcl dt sigma =
     case dt of
@@ -170,9 +203,14 @@ evalTypeDcl dt sigma =
                         (Just name) -> return $ Left (formatErr ("multiple instances of termconstructor '" ++ name ++ "'") utilData)
                         Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
             where
+                -- set up the set from Sig in which the termconstructors of 'typeId' are declared 
                 list2  = [evaluateTermCons ts typeId | ts <- cons]
                 sigma2 = Set.fromList list2
 
+-- implementation of (varErk-1) and (varErk-2)
+-- returns an error message if:
+--  1. the same variable name is declared more than once
+-- otherwise, a recursively defined variabel environment is returned 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO (Either String Env)
 evalVarDcl dv env sigma =
     case dv of
@@ -189,15 +227,21 @@ evalVarDcl dv env sigma =
                                 (ClosureValue x' e' env2 sigma') -> evalVarDcl dv' (env `except` (x, RecClosureValue x x' e' env2 sigma')) sigma
                                 _                                -> evalVarDcl dv' (env `except` (x, value)) sigma
             where
+                -- extract 'x' from the AST
                 x = case xt of
                     UntypedVarAST varId _ -> varId
                     TypedVarAST varId _ _ -> varId
 
+-- collection of expression transition rules
+-- implementation of rules (const), (lambda), (type)
+-- returns an error message if:
+--  1. any of the transition rule implementations returns an error message
+-- otherwise, returns a Bonsai value
 evalExpr :: ExprAST -> Env -> Sig -> IO (Either String Values)
 evalExpr expr env sigma = do
     case expr of
         (VarExprAST varId utilData)            -> evalVarExpr varId env sigma utilData
-        (TypeExprAST typeId _)                 -> return $ Right (TerValue typeId)
+        (TypeExprAST typeId _)                 -> return $ Right (TerValue typeId) --  TODO: check whether it is in sigma
         (ConstExprAST c _)                     -> return $ Right (ConstValue c)
         (ParenExprAST expr' _)                 -> evalExpr expr' env sigma
         (LambdaExprAST varId expr' _)          -> return $ Right (ClosureValue varId expr' env sigma)
@@ -212,6 +256,10 @@ evalExpr expr env sigma = do
                 err@(Left _) -> return err 
                 (Right value) -> evalMatch value branches env sigma utilData
 
+-- implementation of transition rule (var)
+-- returns an error message if:
+--  1. the specified variable is not defined in the known variable environment
+-- otherwise, returns the bound value
 evalVarExpr :: VarId -> Env -> Sig -> UtilData -> IO (Either String Values)
 evalVarExpr varId env _ utilData =
     case maybeValue of
@@ -220,6 +268,10 @@ evalVarExpr varId env _ utilData =
     where
         maybeValue = env `getVar` varId
 
+-- implementation of transition rule (tupe-1) and (type-2)
+-- returns an error message if:
+--  1. any of the immediate constituents result in an error message
+-- otherwise, returns a Bonsai tuple value
 evalTuple :: [ExprAST] -> Env -> Sig -> IO (Either String Values)
 evalTuple exprs env sigma = do
     maybeBody <- evalExprs exprs env sigma
@@ -227,6 +279,10 @@ evalTuple exprs env sigma = do
         (Left msg)   -> return $ Left msg
         (Right body) -> return $ Right (TupleValue body)
 
+-- implementation of transition rule (list-1) and (list-2)
+-- returns an error message if:
+--  1. any of the immediate constituents result in an error message
+-- otherwise, returns a Bonsai list value
 evalList :: [ExprAST] -> Env -> Sig -> IO (Either String Values)
 evalList exprs env sigma = do
     maybeBody <- evalExprs exprs env sigma
@@ -234,6 +290,11 @@ evalList exprs env sigma = do
         (Left msg)   -> return $ Left msg
         (Right body) -> return $ Right (ListValue body)
 
+-- helper function for evalTuple and evalList
+-- evaluates each expression AST in input list
+-- returns an error message if:
+--  1. any of the elements result in an error message
+-- otherwise, returns a list of Bonsai values
 evalExprs :: [ExprAST] -> Env -> Sig -> IO (Either String [Values])
 evalExprs [] _ _           = return $ Right []
 evalExprs (e:es) env sigma = do 
@@ -246,6 +307,11 @@ evalExprs (e:es) env sigma = do
                 (Left msg)     -> return $ Left msg
                 (Right values) -> return $ Right (value:values)
 
+-- implementation of transition rules (andv-1), (andv-2), (andv-3), (andv-4) and (andv-5)
+-- returns an error message if:
+--  1. expr1 results in an error message when evaluated
+--  2. expr2 results in an error message when evaluated
+-- otherwise, returns a Bonsai value corresponding to the applied function
 evalFunApp :: ExprAST -> ExprAST -> Env -> Sig -> IO (Either String Values)
 evalFunApp expr1 expr2 env sigma = do
     maybeValue <- evalExpr expr1 env sigma
@@ -268,6 +334,10 @@ evalFunApp expr1 expr2 env sigma = do
                         (TerValue t)                        -> return $ Right (TerConsValue t v')
                         _                                   -> error "invalid function type." -- should be prevented by typesystem
 
+-- helper function for evalFunApp
+-- returns the result of apply(c,v)
+-- if c's definition of apply only requires one value
+-- otherwise, returns a partial value
 partiallyApply :: ConstAST -> Values -> IO Values
 partiallyApply fun@(UnaryMinusConstAST _) value     = apply fun [value]
 partiallyApply fun@(NotConstAST _) value            = apply fun [value]
@@ -296,6 +366,10 @@ partiallyApply fun@(WriteConstAST _) value          = return $ PartialValue (\y 
 partiallyApply fun@(DeleteConstAST _) value         = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply _ _                                  = error "cannot partially apply a non-function constant." -- should be prevented by typesystem
 
+-- implementation of transition rule (let-1) and (let-2)
+-- returns an error message if:
+--  1. either expr1 or expr2 results in an error message when evaluated
+-- otherwise, returns a Bonsai value
 evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO (Either String Values)
 evalLetIn xt expr1 expr2 env sigma = do
     maybeValue <- evalExpr expr1 env sigma
@@ -306,10 +380,18 @@ evalLetIn xt expr1 expr2 env sigma = do
                 (ClosureValue x' expr' env' sigma') -> evalExpr expr2 (env `except` (x, RecClosureValue x x' expr' env' sigma')) sigma
                 _                                   -> evalExpr expr2 (env `except` (x, value)) sigma
             where
+                -- extract x from AST
                 x = case xt of
                     UntypedVarAST varId _ -> varId
                     TypedVarAST varId _ _ -> varId
 
+-- implementation of transition rule (case)
+-- chooses the first acceptable branch
+-- returns an error message if:
+--  1. the chosen branch results in an error message
+--  2. no branch is acceptable - that is: non-exhaustive branches
+--  3. any evaluated 'predicate' results in an error message 
+-- otherwise, returns the value the chosen branch evaluates to
 evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
 evalCase [] _ _ utilData = return $ Left (formatErr "non-exhaustive case branches" utilData)
 evalCase ((pred', expr'):branches') env sigma utilData = do
@@ -321,6 +403,10 @@ evalCase ((pred', expr'):branches') env sigma utilData = do
                 then evalExpr expr' env sigma
                 else evalCase branches' env sigma utilData
 
+-- helper function for evalCase
+-- returns an error message if:
+--  1. the specified 'predicate' results in an error message when evaluated
+-- otherwise, returns a boolean value indicating whether the branch is accepted
 handlePred :: PredAST -> Env -> Sig -> IO (Either String Bool)
 handlePred (PredWildAST _) _ _            = return $ Right True
 handlePred (PredExprAST expr _) env sigma = do 
@@ -332,7 +418,15 @@ handlePred (PredExprAST expr _) env sigma = do
                 (ConstValue (BoolConstAST b _)) -> return $ Right b
                 _                               -> error "case condition must be a predicate or wildcard." -- should be prevented by typesystem
 
-
+-- implementation of transition rule (match)
+-- chooses the first acceptable branch
+-- returns an error message if:
+--  1. an unknown termconstructor is used in any pattern
+--  2. the expression to be matched upon results in an error message
+--  3. the chosen branch results in an error message
+--  4. no branch is acceptable - that is: non-exhaustive branches
+--  5. the same variable name is bound more than once in a pattern 
+-- otherwise, returns the value the chosen branch evaluates to
 evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
 evalMatch _ [] _ _ utilData                                  = return $ Left (formatErr "non-exhaustive match branches" utilData)
 evalMatch value ((pat', expr'):branches') env sigma utilData =
@@ -346,6 +440,9 @@ evalMatch value ((pat', expr'):branches') env sigma utilData =
                         (Just msg) -> return $ Left (formatErr ("variable '" ++ msg ++ "' cannot be bound more than once in the same pattern") utilData)
                         Nothing    -> evalExpr expr' (applyBindings env delta) sigma
 
+-- helper function for evalMatch
+-- returns the name of a bounded variable,
+-- if it is bound more than once in input list
 findConflicts :: [Binding] -> Maybe String
 findConflicts []          = Nothing
 findConflicts ((x, _):bs) = 
@@ -353,6 +450,9 @@ findConflicts ((x, _):bs) =
         then Just (varName x)
         else findConflicts bs
 
+-- helper function for findConflicts
+-- returns a boolean value indicating
+-- whether the input varId is bound in input list
 hasVar :: [Binding] -> VarId -> Bool
 hasVar [] _          = False
 hasVar ((y, _):bs) x = 
@@ -360,10 +460,18 @@ hasVar ((y, _):bs) x =
         then True
         else hasVar bs x 
 
+-- helper function for evalMatch
+-- returns an updated variable environment
+-- with bounds in input variable environment
+-- updated with input list of bindings
 applyBindings :: Env -> [Binding] -> Env
 applyBindings env []     = env
 applyBindings env (b:bs) = applyBindings (env `except` b) bs
 
+-- implementation of the match function
+-- returns an error message if:
+--  1. an undefined termconstructor is used in a pattern
+-- otherwise, either returns a match-fail or a list of bindings
 match :: Values -> PatternAST -> Sig -> Either String Bindings
 match value (VarPatternAST varId _) _ = Right (Bindings [(varId, value)])
 
@@ -379,7 +487,7 @@ match (TerValue t1) (TypePatternAST t2 utilData) sigma =
         then if t1 == t2 
                 then Right (Bindings [])
                 else Right MatchFail
-        else Left (formatErr ("unknown term constructor '" ++ typeName t1 ++ "'") utilData)
+        else Left (formatErr ("unknown term-constructor '" ++ typeName t1 ++ "'") utilData)
 
 match (ListValue (v:vs)) (DecompPatternAST pat' varId _) sigma =
     case maybeDelta of
@@ -406,7 +514,11 @@ match (TerConsValue t1 value) (TypeConsPatternAST t2 pat' utilData) sigma =
 
 match _ _ _ = Right MatchFail
 
-
+-- helper function for match
+-- it is used to evaluate immediate constituents of tuple/list value pattern pairs
+-- returns an error message if:
+--  1. any of the recursive matches result in an error message
+-- otherwise, returns either a match-fail or a list of bindings
 matchMultiple :: [Values] -> [PatternAST] -> Sig -> Either String Bindings
 matchMultiple [] [] _             = Right (Bindings [])
 matchMultiple (v:vs) (p:ps) sigma =
@@ -423,33 +535,15 @@ matchMultiple (v:vs) (p:ps) sigma =
                                 (_, MatchFail)             -> Right MatchFail
                                 (Bindings l1, Bindings l2) -> Right (Bindings (l1 ++ l2))
             where
-                maybeBind  = match v p sigma
-                maybeBinds = matchMultiple vs ps sigma
+                maybeBind  = match v p sigma           -- evaluate immediate pair
+                maybeBinds = matchMultiple vs ps sigma -- evaluate remaining pairs
 
 matchMultiple _ _ _ = Right MatchFail
 
-valueListToString :: [Values] -> String
-valueListToString [] = ""
-valueListToString ((ConstValue (CharConstAST c _)):cs) = (c:(valueListToString cs))
-valueListToString _ = error "list must be of chars."
 
-stringToValueList :: String -> [Values]
-stringToValueList []     = []
-stringToValueList (c:cs) = ((ConstValue (CharConstAST c initUtilData)):(stringToValueList cs))
-
-advanceSystem :: Values -> Values
-advanceSystem (SystemValue sys) = SystemValue (sys + 1)
-advanceSystem _                 = error "cannot advance a non-system value."
-
-advanceFile :: Values -> Values
-advanceFile (FileValue h id')          = FileValue h (id' + 1)
-advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
-advanceFile _                         = error "cannot advance a non-file value."
-
-trueValue = ConstValue (BoolConstAST True initUtilData)
-falseValue = ConstValue (BoolConstAST False initUtilData)
-emptyCharValue = ConstValue (CharConstAST ' ' initUtilData)
-
+-- implementation of apply function
+-- returns a Bonsai value based on input predefined function 
+-- and value parameters (represented by value list)
 apply :: ConstAST -> [Values] -> IO Values
 
 -- arithmetic operators
@@ -597,6 +691,30 @@ apply (ToFloatConstAST _) [ListValue cs] =
             string = valueListToString cs
 
 apply _ _ = error "invalid arguments for apply." -- should be prevented by typesystem
+
+-- helper functions for apply
+
+valueListToString :: [Values] -> String
+valueListToString [] = ""
+valueListToString ((ConstValue (CharConstAST c _)):cs) = (c:(valueListToString cs))
+valueListToString _ = error "list must be of chars."
+
+stringToValueList :: String -> [Values]
+stringToValueList []     = []
+stringToValueList (c:cs) = ((ConstValue (CharConstAST c initUtilData)):(stringToValueList cs))
+
+advanceSystem :: Values -> Values
+advanceSystem (SystemValue sys) = SystemValue (sys + 1)
+advanceSystem _                 = error "cannot advance a non-system value."
+
+advanceFile :: Values -> Values
+advanceFile (FileValue h id')          = FileValue h (id' + 1)
+advanceFile (PredefinedFileValue s f) = PredefinedFileValue s (f + 1)
+advanceFile _                         = error "cannot advance a non-file value."
+
+trueValue = ConstValue (BoolConstAST True initUtilData)
+falseValue = ConstValue (BoolConstAST False initUtilData)
+emptyCharValue = ConstValue (CharConstAST ' ' initUtilData)
 
 getValueList :: Values -> [Values]
 getValueList (ListValue l) = l

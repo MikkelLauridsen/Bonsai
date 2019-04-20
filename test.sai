@@ -6,7 +6,7 @@ type Test1 = {
 
 type Test2 = {
     | Three 
-    | Three
+    | Four
 }
 
 var writes::(String -> (File* -> (Bool, File*))) = s => {
@@ -66,6 +66,7 @@ var prompt = s => {
 var main = sys => {
     case {
         | true == false -> writes "oi m8!\n" stdout
+        | ?             -> writes "nice m8!\n" stdout
     }
 }
 
