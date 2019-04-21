@@ -233,7 +233,7 @@ evalVarDcl dv env sigma =
                     TypedVarAST varId _ _ -> varId
 
 -- collection of expression transition rules
--- implementation of rules (const), (lambda), (type)
+-- implementation of rules (const), (lambda), (ter)
 -- returns an error message if:
 --  1. any of the transition rule implementations returns an error message
 -- otherwise, returns a Bonsai value
@@ -241,7 +241,7 @@ evalExpr :: ExprAST -> Env -> Sig -> IO (Either String Values)
 evalExpr expr env sigma = do
     case expr of
         (VarExprAST varId utilData)            -> evalVarExpr varId env sigma utilData
-        (TypeExprAST typeId _)                 -> return $ Right (TerValue typeId) --  TODO: check whether it is in sigma
+        (TypeExprAST typeId utilData)          -> evalTer typeId sigma utilData
         (ConstExprAST c _)                     -> return $ Right (ConstValue c)
         (ParenExprAST expr' _)                 -> evalExpr expr' env sigma
         (LambdaExprAST varId expr' _)          -> return $ Right (ClosureValue varId expr' env sigma)
@@ -267,6 +267,16 @@ evalVarExpr varId env _ utilData =
         (Just value) -> return $ Right value
     where
         maybeValue = env `getVar` varId
+
+-- implementation of transition rule (ter)
+-- return an error message if:
+--  1. the termconstructor is not known in Sigma
+-- otherwise, returns the termconstructor as a Bonsai value
+evalTer :: TypeId -> Sig -> UtilData -> IO (Either String Values)
+evalTer t sigma utilData = 
+    if sigma `has` t
+        then return $ Right (TerValue t)
+        else return $ Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
 
 -- implementation of transition rule (tupe-1) and (type-2)
 -- returns an error message if:
