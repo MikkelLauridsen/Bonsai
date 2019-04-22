@@ -9,6 +9,39 @@ type Test2 = {
     | Four
 }
 
+type Values = {
+    | IntValue Int
+    | FloatValue Float
+}
+
+type Env = {
+    | Node (String, Values, Env, Env)
+    | Leaf (String, Values)
+    | Vacant
+}
+
+var bind::(Env -> (String -> (Values -> Env))) = env => {
+    key => {
+        value => {
+            match env {
+                | Vacant                          -> Leaf (key, value)
+                | Node (key', value', env1, env2) -> 
+                case {
+                    | key == key' -> Node (key, value, env1, env2)
+                    | key < key'  -> Node (key', value', (bind env1 key value), env2)
+                    | key > key'  -> Node (key', value', env1, (bind env2, key, value))
+                }
+                | Leaf (key', value')             ->
+                case {
+                    | key == key' -> Leaf (key, value)
+                    | key < key'  -> Node (key', value', (Leaf (key, value)), Vacant)
+                    | key > key'  -> Node (key', value', Vacant, (Leaf (key, value))) 
+                }
+            }
+        } 
+    }
+}
+
 var writes::(String -> (File* -> (Bool, File*))) = s => {
     f => {
         match s {
@@ -64,10 +97,7 @@ var prompt = s => {
 }
 
 var main = sys => {
-    case {
-        | true == false -> writes "oi m8!\n" stdout
-        | ?             -> writes "nice m8!\n" stdout
-    }
+    writes (show (bind (bind Vacant "x" (IntValue 32)) "xyyy" (FloatValue 54))) stdout
 }
 
 #var main = sys => {

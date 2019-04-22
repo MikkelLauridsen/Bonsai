@@ -58,7 +58,23 @@ instance Eq Values where
     PredefinedFileValue s1 i1 == PredefinedFileValue s2 i2 = s1 == s2 && i1 == i2
     TupleValue t1 == TupleValue t2 = t1 == t2
     ListValue l1 == ListValue l2 = l1 == l2
-    _ == _ = False -- it is impossible to check whether two functions are equivalent, as their environments may vary
+    _ == _ = error "unsupported types for equality checking." -- it is impossible to check whether two functions are equivalent, as their environments may vary
+
+instance Ord Values where
+    ConstValue c1 `compare` ConstValue c2 = c1 `compare` c2
+    ListValue l1 `compare` ListValue l2 = l1 `compareLists` l2
+    _ `compare` _ = error "unsupported types for comparison."
+
+compareLists :: [Values] -> [Values] -> Ordering
+compareLists [] [] = EQ
+compareLists [] _  = LT
+compareLists _ []  = GT
+compareLists ((ConstValue c1):l1') ((ConstValue c2):l2') =
+    case c1 `compare` c2 of
+        EQ -> compareLists l1' l2'
+        LT -> LT
+        GT -> GT
+compareLists _ _ = error "unsupported list value type for comparison."
 
 -- implementation of the sorts function
 -- recursively constructs a formated string (Sort)
@@ -572,10 +588,10 @@ apply (ModuloConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntC
 -- boolean operators
 apply (EqualsConstAST utilData) [v1, v2]                                                                 = return $ ConstValue (BoolConstAST (v1 == v2) utilData)
 apply (NotConstAST utilData) [ConstValue (BoolConstAST v1 _)]                                            = return $ ConstValue (BoolConstAST (not v1) utilData)
-apply (GreaterConstAST utilData) [ConstValue v1, ConstValue v2]                                          = return $ ConstValue (BoolConstAST (v1 > v2) utilData)
-apply (LessConstAST utilData) [ConstValue v1, ConstValue v2]                                             = return $ ConstValue (BoolConstAST (v1 < v2) utilData)
-apply (GreaterOrEqualConstAST utilData) [ConstValue v1, ConstValue v2]                                   = return $ ConstValue (BoolConstAST (v1 >= v2) utilData)
-apply (LessOrEqualConstAST utilData) [ConstValue v1, ConstValue v2]                                      = return $ ConstValue (BoolConstAST (v1 <= v2) utilData)
+apply (GreaterConstAST utilData) [v1, v2]                                                                = return $ ConstValue (BoolConstAST (v1 > v2) utilData)
+apply (LessConstAST utilData) [v1, v2]                                                                   = return $ ConstValue (BoolConstAST (v1 < v2) utilData)
+apply (GreaterOrEqualConstAST utilData) [v1, v2]                                                         = return $ ConstValue (BoolConstAST (v1 >= v2) utilData)
+apply (LessOrEqualConstAST utilData) [v1, v2]                                                            = return $ ConstValue (BoolConstAST (v1 <= v2) utilData)
 apply (AndConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]            = return $ ConstValue (BoolConstAST (v1 && v2) utilData)
 apply (OrConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]             = return $ ConstValue (BoolConstAST (v1 || v2) utilData)
 
