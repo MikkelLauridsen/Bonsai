@@ -14,6 +14,11 @@ type Values = {
     | FloatValue Float
 }
 
+type MaybeValue = {
+    | Just Values
+    | Nothing
+}
+
 type Env = {
     | Node (String, Values, Env, Env)
     | Leaf (String, Values)
@@ -39,6 +44,25 @@ var bind::(Env -> (String -> (Values -> Env))) = env => {
                 }
             }
         } 
+    }
+}
+
+var lookup::(Env -> (String -> MaybeValue)) = env => {
+    key => {
+        match env {
+            | Vacant -> Nothing
+            | Leaf (key', value') ->
+            case {
+                | key == key' -> Just value'
+                | ?           -> Nothing
+            }
+            | Node (key', value', env1, env2) ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup env1 key
+                | key > key'  -> lookup env2 key
+            }
+        }
     }
 }
 
@@ -97,7 +121,13 @@ var prompt = s => {
 }
 
 var main = sys => {
-    writes (show (bind (bind Vacant "x" (IntValue 32)) "xyyy" (FloatValue 54))) stdout
+    let env = (bind (bind Vacant "x" (IntValue 32)) "xyyy" (FloatValue 54))
+    in (
+        let (?, stdout') = writes ((show env) ++ "\n") stdout
+        in (
+            writes (show (lookup env "xyyy")) stdout'
+        )
+    )
 }
 
 #var main = sys => {
