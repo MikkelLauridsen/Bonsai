@@ -21,7 +21,6 @@ type MaybeValue = {
 
 type Env = {
     | Node (String, Values, Env, Env)
-    | Leaf (String, Values)
     | Vacant
 }
 
@@ -29,18 +28,12 @@ var bind::(Env -> (String -> (Values -> Env))) = env => {
     key => {
         value => {
             match env {
-                | Vacant                          -> Leaf (key, value)
+                | Vacant                          -> Node (key, value, Vacant, Vacant)
                 | Node (key', value', env1, env2) -> 
                 case {
                     | key == key' -> Node (key, value, env1, env2)
                     | key < key'  -> Node (key', value', (bind env1 key value), env2)
                     | key > key'  -> Node (key', value', env1, (bind env2, key, value))
-                }
-                | Leaf (key', value')             ->
-                case {
-                    | key == key' -> Leaf (key, value)
-                    | key < key'  -> Node (key', value', (Leaf (key, value)), Vacant)
-                    | key > key'  -> Node (key', value', Vacant, (Leaf (key, value))) 
                 }
             }
         } 
@@ -51,11 +44,6 @@ var lookup::(Env -> (String -> MaybeValue)) = env => {
     key => {
         match env {
             | Vacant -> Nothing
-            | Leaf (key', value') ->
-            case {
-                | key == key' -> Just value'
-                | ?           -> Nothing
-            }
             | Node (key', value', env1, env2) ->
             case {
                 | key == key' -> Just value'
