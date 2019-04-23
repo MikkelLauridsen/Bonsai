@@ -33,7 +33,7 @@ var bind::(Env -> (String -> (Values -> Env))) = env => {
                 case {
                     | key == key' -> Node (key, value, env1, env2)
                     | key < key'  -> Node (key', value', (bind env1 key value), env2)
-                    | key > key'  -> Node (key', value', env1, (bind env2, key, value))
+                    | key > key'  -> Node (key', value', env1, (bind env2 key value))
                 }
             }
         } 
