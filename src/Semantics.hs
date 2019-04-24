@@ -80,6 +80,8 @@ compareLists _ _ = error "unsupported list value type for comparison."
 -- recursively constructs a formated string (Sort)
 sorts :: CompTypeAST -> Sort
 sorts (CompSimpleAST typeId _) = typeName typeId
+sorts (CompSimplePolyAST varId _) = varName varId
+sorts (CompPolyAST typeId comps' _) = typeName typeId ++ "<" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ">"
 sorts (CompListAST comp' _) = "[" ++ sorts comp' ++ "]"
 sorts (CompTupleAST comps' _) = "(" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ")"
 sorts (CompFuncAST comp1' comp2' _) = sorts comp1' ++ "->" ++ sorts comp2'
@@ -210,18 +212,22 @@ interpret path (ProgAST dt dv _) = do
 evalTypeDcl :: TypeDclAST -> Sig -> IO (Either String Sig)
 evalTypeDcl dt sigma =
     case dt of
-        EpsTypeDclAST                       -> return $ Right sigma
-        TypeDclAST typeId cons dt' utilData ->
-            case sigma `conflicts` sigma2 of
-                (Just name) -> return $ Left (formatErr ("cannot redefine '" ++ name ++ "'") utilData)
-                Nothing     -> 
-                    case hasConflicts list2 of
-                        (Just name) -> return $ Left (formatErr ("multiple instances of termconstructor '" ++ name ++ "'") utilData)
-                        Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
-            where
-                -- set up the set from Sig in which the termconstructors of 'typeId' are declared 
-                list2  = [evaluateTermCons ts typeId | ts <- cons]
-                sigma2 = Set.fromList list2
+        EpsTypeDclAST                             -> return $ Right sigma
+        TypeDclAST typeId cons dt' utilData       -> handleTypeDcl typeId cons dt' sigma utilData
+        TypePolyDclAST typeId _ cons dt' utilData -> handleTypeDcl typeId cons dt' sigma utilData
+
+handleTypeDcl :: TypeId -> [ConsAST] -> TypeDclAST -> Sig -> UtilData -> IO (Either String Sig)
+handleTypeDcl typeId cons dt' sigma utilData =
+    case sigma `conflicts` sigma2 of
+        (Just name) -> return $ Left (formatErr ("cannot redefine '" ++ name ++ "'") utilData)
+        Nothing     -> 
+            case hasConflicts list2 of
+                (Just name) -> return $ Left (formatErr ("multiple instances of termconstructor '" ++ name ++ "'") utilData)
+                Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
+    where
+        -- set up the set from Sig in which the termconstructors of 'typeId' are declared 
+        list2  = [evaluateTermCons ts typeId | ts <- cons]
+        sigma2 = Set.fromList list2
 
 -- implementation of (varErk-1) and (varErk-2)
 -- returns an error message if:

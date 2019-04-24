@@ -14,41 +14,41 @@ type Values = {
     | FloatValue Float
 }
 
-type MaybeValue = {
-    | Just Values
+type Maybe<a> = {
+    | Just a
     | Nothing
 }
 
-type Env = {
-    | Node (String, Values, Env, Env)
-    | Vacant
+type Map<k,v> = {
+    | Node (k, v, Map, Map)
+    | Nil
 }
 
-var bind::(Env -> (String -> (Values -> Env))) = env => {
+var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map => {
     key => {
         value => {
-            match env {
-                | Vacant                          -> Node (key, value, Vacant, Vacant)
-                | Node (key', value', env1, env2) -> 
+            match map {
+                | Nil -> Node (key, value, Nil, Nil)
+                | Node (key', value', map1', map2') -> 
                 case {
-                    | key == key' -> Node (key, value, env1, env2)
-                    | key < key'  -> Node (key', value', (bind env1 key value), env2)
-                    | key > key'  -> Node (key', value', env1, (bind env2 key value))
+                    | key == key' -> Node (key, value, map1', map2')
+                    | key < key'  -> Node (key', value', (bind map1' key value), map2')
+                    | key > key'  -> Node (key', value', map1', (bind map2' key value))
                 }
             }
         } 
     }
 }
 
-var lookup::(Env -> (String -> MaybeValue)) = env => {
+var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map => {
     key => {
-        match env {
-            | Vacant -> Nothing
-            | Node (key', value', env1, env2) ->
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
             case {
                 | key == key' -> Just value'
-                | key < key'  -> lookup env1 key
-                | key > key'  -> lookup env2 key
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
             }
         }
     }
@@ -109,7 +109,7 @@ var prompt = s => {
 }
 
 var main = sys => {
-    let env = (bind (bind Vacant "x" (IntValue 32)) "xyyy" (FloatValue 54))
+    let env = (bind (bind Nil "x" (IntValue 32)) "xyyy" (FloatValue 54))
     in (
         let (?, stdout') = writes ((show env) ++ "\n") stdout
         in (

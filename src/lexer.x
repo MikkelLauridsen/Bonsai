@@ -45,15 +45,15 @@ tokens :-
 <0>            type                                                            { terminalToToken TypeToken}
 <0>            true                                                            { terminalToToken (BoolToken True)}
 <0>            false                                                           { terminalToToken (BoolToken False)}
-<0>            open_read                                                       { stringTerminalToToken IOToken }
-<0>            open_write                                                      { stringTerminalToToken IOToken }
-<0>            close                                                           { stringTerminalToToken IOToken }
-<0>            read                                                            { stringTerminalToToken IOToken }
-<0>            write                                                           { stringTerminalToToken IOToken }
-<0>            delete                                                          { stringTerminalToToken IOToken }
-<0>            show                                                            { stringTerminalToToken IOToken }
-<0>            to_int                                                          { stringTerminalToToken IOToken }
-<0>            to_float                                                        { stringTerminalToToken IOToken }
+<0>            open_read                                                       { stringTerminalToToken IOToken}
+<0>            open_write                                                      { stringTerminalToToken IOToken}
+<0>            close                                                           { stringTerminalToToken IOToken}
+<0>            read                                                            { stringTerminalToToken IOToken}
+<0>            write                                                           { stringTerminalToToken IOToken}
+<0>            delete                                                          { stringTerminalToToken IOToken}
+<0>            show                                                            { stringTerminalToToken IOToken}
+<0>            to_int                                                          { stringTerminalToToken IOToken}
+<0>            to_float                                                        { stringTerminalToToken IOToken}
 <0>            \=\>                                                            { terminalToToken FollowsToken}
 <0>            \-? $digit+                                                     { stringTerminalToToken (IntToken . read)}
 <0>            \-? $digit+\.$digit+                                            { stringTerminalToToken (FloatToken . read)}
@@ -81,8 +81,8 @@ tokens :-
 <0>            \/                                                              { stringTerminalToToken LevelTwoOpToken}
 <0>            \%                                                              { stringTerminalToToken LevelTwoOpToken}
 <0>            \=\=                                                            { stringTerminalToToken LevelTwoOpToken}
-<0>            \<                                                              { stringTerminalToToken LevelThreeOpToken} 
-<0>            \>                                                              { stringTerminalToToken LevelThreeOpToken}
+<0>            \<                                                              { terminalToToken AngleOpenToken} 
+<0>            \>                                                              { terminalToToken AngleCloseToken}
 <0>            \<\=                                                            { stringTerminalToToken LevelThreeOpToken}
 <0>            \>\=                                                            { stringTerminalToToken LevelThreeOpToken}
 <0>            \:                                                              { terminalToToken ConsToken}
@@ -127,6 +127,8 @@ data Terminal =
     VarIdToken String        |
     GuardToken               |
     EscapeToken              |
+    AngleOpenToken           |
+    AngleCloseToken          |
     DeclareToken             |
     CurlyOpenToken           |
     CurlyCloseToken          |
@@ -281,6 +283,8 @@ terminalString (TypeIdToken string)       = string
 terminalString (VarIdToken string)        = string
 terminalString GuardToken                 = "|"
 terminalString EscapeToken                = "."
+terminalString AngleOpenToken             = "<"
+terminalString AngleCloseToken            = ">"
 terminalString DeclareToken               = "="
 terminalString CurlyOpenToken             = "{"
 terminalString CurlyCloseToken            = "}"

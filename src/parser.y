@@ -32,6 +32,8 @@ import Ast
     var_id    { Token _ (VarIdToken _) }
     '|'       { Token _ GuardToken }
     '.'       { Token _ EscapeToken }
+    '<'       { Token _ AngleOpenToken }
+    '>'       { Token _ AngleCloseToken }
     '='       { Token _ DeclareToken }
     '{'       { Token _ CurlyOpenToken }
     '}'       { Token _ CurlyCloseToken }
@@ -57,134 +59,144 @@ import Ast
 -- Semantic actions are used to construct an abstract syntax tree
 -- $i denotes "value of term i" in the corresponding production
 
-Prog    : Type_dec Var_dec                           { ProgAST $1 $2 (getUtilDataProg $1 $2) }
-
--- Types
-
-Type_dec    :                                             { EpsTypeDclAST }
-            | type type_id '=' '{' Cons_list '}' Type_dec { TypeDclAST (getTypeId $2) $5 $7 (getUtilData $1) }
-
-Cons_list   : Cons_list Cons                         { $1 ++ [$2] }
-            | Cons                                   { [$1] }
-
-Cons        : '|' type_id Comp_type                  { DoubleConsAST (getTypeId $2) $3 (getUtilData $1) }
-            | '|' type_id                            { SingleConsAST (getTypeId $2) (getUtilData $1) }
-
-Comp_type   : type_id                                { CompSimpleAST (getTypeId $1) (getUtilData $1) }
-            | '[' Comp_type ']'                      { CompListAST $2 (getUtilData $1) }
-            | '(' Comp_rep ')'                       { CompTupleAST $2 (getUtilData $1) }
-            | '(' Comp_type '->' Comp_type ')'       { CompFuncAST $2 $4 (getUtilData $1) }
-
-Comp_rep    : Comp_rep ',' Comp_type                 { $1 ++ [$3] }
-            | Comp_type                              { [$1] }
-
-Type_spec   : '::' Comp_type                         { $2 }
-
--- Variable declarations
-
-Var_dec     :                                        { EpsVarDclAST }
-            | var Typed_var '=' Expr Var_dec         { VarDclAST $2 $4 $5 (getUtilData $1) }
-
--- Control structures
-
-Match       : match Expr '{' Match_body '}'          { MatchExprAST $2 $4 (getUtilData $1) }
-
-Match_body  : Match_body '|' Pattern '->' Expr       { $1 ++ [($3, $5)] }
-            | '|' Pattern '->' Expr                  { [($2, $4)] }
-
-Let_in      : let Typed_var '=' Expr in '(' Expr ')' { LetInExprAST $2 $4 $7 (getUtilData $1) }
-            | let Vars '=' Expr in '(' Expr ')'      { let_in $2 $4 $7 (getUtilData $1) }
-
-Case        : case '{' Case_body '}'                 { CaseExprAST $3 (getUtilData $1) }
-
-Case_body   : Case_body '|' Pred '->' Expr           { $1 ++ [($3, $5)] }
-            | '|' Pred '->' Expr                     { [($2, $4)] }
-
-Pred        : Expr                                   { PredExprAST $1 (getUtilDataExpr $1) }
-            | '?'                                    { PredWildAST (getUtilData $1) }
-
--- Utilities
-
-Vars        : '(' Vars_body ')'                      { $2 }
-
-Vars_body   : Vars_body ',' Vars_joint               { $1 ++ [$3] }
-            | Vars_joint ',' Vars_joint              { [$1, $3] }
-
-Vars_joint  : var_id                                 { VarPatternAST (getVarId $1) (getUtilData $1) }
-            | '?'                                    { WildPatternAST (getUtilData $1) }
-
-Typed_var   : var_id                                 { UntypedVarAST (getVarId $1) (getUtilData $1) }
-            | var_id Type_spec                       { TypedVarAST (getVarId $1) $2 (getUtilData $1) }
-
-Literal     : char                                   { CharConstAST (getCharVal $1) (getUtilData $1) }
-            | int                                    { IntConstAST (getIntVal $1) (getUtilData $1) }
-            | float                                  { FloatConstAST (getFloatVal $1) (getUtilData $1) }
-            | bool                                   { BoolConstAST (getBoolVal $1) (getUtilData $1) }
-
-ConstFun    : one_op                                 { convert_one_op $1 }
-            | two_op                                 { convert_two_op $1 }
-            | three_op                               { convert_three_op $1 }
-            | unary_op                               { convert_unary_op $1 }
-
--- Patterns
-
-Pattern     : Struc_pat                              { $1 }
-            | Literal                                { ConstPatternAST $1 (getUtilDataConst $1) }
-            | string                                 { ListPatternAST (handle_string_pat $1) (getUtilData $1) }
-            | var_id                                 { VarPatternAST (getVarId $1) (getUtilData $1) }
-            | '?'                                    { WildPatternAST (getUtilData $1) }
-            | type_id Pattern                        { TypeConsPatternAST (getTypeId $1) $2 (getUtilData $1) }
-            | type_id                                { TypePatternAST (getTypeId $1) (getUtilData $1) }
-
-Struc_pat   : '(' Pat_body ')'                       { TuplePatternAST $2 (getUtilData $1) }
-            | '['']'                                 { ListPatternAST [] (getUtilData $1) }
-            | '[' Pat_body ']'                       { ListPatternAST $2 (getUtilData $1) }
-            | '(' Pattern ':' var_id ')'             { DecompPatternAST $2 (getVarId $4) (getUtilData $1) }
-
-Pat_body    : Pat_body ',' Pattern                   { $1 ++ [$3] }
-            | Pattern                                { [$1] }
-
--- Expr
-
-Expr        : Expr one_op Two_infix                  { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_one_op $2) (getUtilData $2)) $1 (getUtilData $2)) $3 (getUtilData $2) }
-            | Two_infix                              { $1 }
-
-Two_infix   : Two_infix two_op Three_infix           { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_two_op $2) (getUtilData $2)) $1 (getUtilData $2)) $3 (getUtilData $2) }
-            | Three_infix                            { $1 }
-
-Three_infix : Three_infix three_op Unary_infix       { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_three_op $2) (getUtilData $2)) $1 (getUtilData $2)) $3 (getUtilData $2) }
-            | Unary_infix                            { $1 }
-
-Unary_infix : unary_op Left_expr                     { FunAppExprAST (ConstExprAST (convert_unary_op $1) (getUtilData $1)) $2 (getUtilData $1) }
-            | Left_expr                              { $1 }
-
-Left_expr   : Match                                  { $1 }
-            | Let_in                                 { $1 }
-            | Case                                   { $1 }
-            | Func_expr                              { $1 }
-
-Func_expr   : Func_expr Lit_expr                     { FunAppExprAST $1 $2 (getUtilDataExpr $1) }
-            | Lit_expr                               { $1 }
-
-Lit_expr    : Lambda                                 { $1 }
-            | Literal                                { ConstExprAST $1 (getUtilDataConst $1) }
-            | string                                 { ListExprAST (handle_string_expr $1) (getUtilData $1) }
-            | type_id                                { TypeExprAST (getTypeId $1) (getUtilData $1) }
-            | var_id                                 { VarExprAST (getVarId $1) (getUtilData $1) }
-            | '.' ConstFun                           { ConstExprAST $2 (getUtilData $1) }
-            | io_op                                  { ConstExprAST (convert_io_op $1) (getUtilData $1) }
-            | '(' Expr ':' Expr ')'                  { FunAppExprAST (FunAppExprAST (ConstExprAST (AppenConstAST (getUtilData $3)) (getUtilData $3)) $2 (getUtilData $1)) $4 (getUtilData $1) }
-            | '(' Tuple_body ')'                     { handle_paren $2 (getUtilData $1) }
-            | '[' List_body ']'                      { ListExprAST $2 (getUtilData $1) }
-
-Lambda      : var_id '=>' '{' Expr '}'               { LambdaExprAST (getVarId $1) $4 (getUtilData $1) }
-
-Tuple_body  : Tuple_body ',' Expr                    { $1 ++ [$3] }
-            | Expr                                   { [$1] }
-
-List_body   :                                        { [] }
-            | Tuple_body                             { $1 }
-
+Prog    : Type_dec Var_dec                                                  { ProgAST $1 $2 (getUtilDataProg $1 $2) }
+                    
+-- Types                    
+                    
+Type_dec    :                                                               { EpsTypeDclAST }
+            | type type_id '=' '{' Cons_list '}' Type_dec                   { TypeDclAST (getTypeId $2) $5 $7 (getUtilData $1) }
+            | type type_id '<' Poly_body '>' '=' '{' Cons_list '}' Type_dec { TypePolyDclAST (getTypeId $2) $4 $8 $10 (getUtilData $1) }
+                    
+Cons_list   : Cons_list Cons                                                { $1 ++ [$2] }
+            | Cons                                                          { [$1] }
+                    
+Cons        : '|' type_id Comp_type                                         { DoubleConsAST (getTypeId $2) $3 (getUtilData $1) }
+            | '|' type_id                                                   { SingleConsAST (getTypeId $2) (getUtilData $1) }
+                    
+Poly_body   : Poly_body ',' var_id                                          { $1 ++ [getVarId $3] }
+            | var_id                                                        { [getVarId $1] }
+                    
+Comp_type   : type_id                                                       { CompSimpleAST (getTypeId $1) (getUtilData $1) }
+            | var_id                                                        { CompSimplePolyAST (getVarId $1) (getUtilData $1) }
+            | type_id '<' Comp_rep '>'                                      { CompPolyAST (getTypeId $1) $3 (getUtilData $1) }
+            | '[' Comp_type ']'                                             { CompListAST $2 (getUtilData $1) }
+            | '(' Comp_rep ')'                                              { CompTupleAST $2 (getUtilData $1) }
+            | '(' Comp_type '->' Comp_type ')'                              { CompFuncAST $2 $4 (getUtilData $1) }
+                    
+Comp_rep    : Comp_rep ',' Comp_type                                        { $1 ++ [$3] }
+            | Comp_type                                                     { [$1] }
+                    
+Type_spec   : '::' Comp_type                                                { $2 }
+                    
+-- Variable declarations                    
+                    
+Var_dec     :                                                               { EpsVarDclAST }
+            | var Typed_var '=' Expr Var_dec                                { VarDclAST $2 $4 $5 (getUtilData $1) }
+                    
+-- Control structures                       
+                    
+Match       : match Expr '{' Match_body '}'                                 { MatchExprAST $2 $4 (getUtilData $1) }
+                    
+Match_body  : Match_body '|' Pattern '->' Expr                              { $1 ++ [($3, $5)] }
+            | '|' Pattern '->' Expr                                         { [($2, $4)] }
+                    
+Let_in      : let Typed_var '=' Expr in '(' Expr ')'                        { LetInExprAST $2 $4 $7 (getUtilData $1) }
+            | let Vars '=' Expr in '(' Expr ')'                             { let_in $2 $4 $7 (getUtilData $1) }
+                    
+Case        : case '{' Case_body '}'                                        { CaseExprAST $3 (getUtilData $1) }
+                    
+Case_body   : Case_body '|' Pred '->' Expr                                  { $1 ++ [($3, $5)] }
+            | '|' Pred '->' Expr                                            { [($2, $4)] }
+                    
+Pred        : Expr                                                          { PredExprAST $1 (getUtilDataExpr $1) }
+            | '?'                                                           { PredWildAST (getUtilData $1) }
+                    
+-- Utilities                        
+                    
+Vars        : '(' Vars_body ')'                                             { $2 }
+                    
+Vars_body   : Vars_body ',' Vars_joint                                      { $1 ++ [$3] }
+            | Vars_joint ',' Vars_joint                                     { [$1, $3] }
+                    
+Vars_joint  : var_id                                                        { VarPatternAST (getVarId $1) (getUtilData $1) }
+            | '?'                                                           { WildPatternAST (getUtilData $1) }
+                    
+Typed_var   : var_id                                                        { UntypedVarAST (getVarId $1) (getUtilData $1) }
+            | var_id Type_spec                                              { TypedVarAST (getVarId $1) $2 (getUtilData $1) }
+                    
+Literal     : char                                                          { CharConstAST (getCharVal $1) (getUtilData $1) }
+            | int                                                           { IntConstAST (getIntVal $1) (getUtilData $1) }
+            | float                                                         { FloatConstAST (getFloatVal $1) (getUtilData $1) }
+            | bool                                                          { BoolConstAST (getBoolVal $1) (getUtilData $1) }
+                    
+Three_op    : three_op                                                      { convert_three_op $1 }
+            | '<'                                                           { LessConstAST (getUtilData $1) }
+            | '>'                                                           { GreaterConstAST (getUtilData $1) }
+                    
+ConstFun    : one_op                                                        { convert_one_op $1 }
+            | two_op                                                        { convert_two_op $1 }
+            | Three_op                                                      { $1 }
+            | unary_op                                                      { convert_unary_op $1 }
+                    
+-- Patterns                         
+                    
+Pattern     : Struc_pat                                                     { $1 }
+            | Literal                                                       { ConstPatternAST $1 (getUtilDataConst $1) }
+            | string                                                        { ListPatternAST (handle_string_pat $1) (getUtilData $1) }
+            | var_id                                                        { VarPatternAST (getVarId $1) (getUtilData $1) }
+            | '?'                                                           { WildPatternAST (getUtilData $1) }
+            | type_id Pattern                                               { TypeConsPatternAST (getTypeId $1) $2 (getUtilData $1) }
+            | type_id                                                       { TypePatternAST (getTypeId $1) (getUtilData $1) }
+                    
+Struc_pat   : '(' Pat_body ')'                                              { TuplePatternAST $2 (getUtilData $1) }
+            | '['']'                                                        { ListPatternAST [] (getUtilData $1) }
+            | '[' Pat_body ']'                                              { ListPatternAST $2 (getUtilData $1) }
+            | '(' Pattern ':' var_id ')'                                    { DecompPatternAST $2 (getVarId $4) (getUtilData $1) }
+                    
+Pat_body    : Pat_body ',' Pattern                                          { $1 ++ [$3] }
+            | Pattern                                                       { [$1] }
+                    
+-- Expr                     
+                    
+Expr        : Expr one_op Two_infix                                         { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_one_op $2) (getUtilData $2)) $1 (getUtilData $2)) $3 (getUtilData $2) }
+            | Two_infix                                                     { $1 }
+                    
+Two_infix   : Two_infix two_op Three_infix                                  { FunAppExprAST (FunAppExprAST (ConstExprAST (convert_two_op $2) (getUtilData $2)) $1 (getUtilData $2)) $3 (getUtilData $2) }
+            | Three_infix                                                   { $1 }
+                    
+Three_infix : Three_infix Three_op Unary_infix                              { FunAppExprAST (FunAppExprAST (ConstExprAST $2 (getUtilDataConst $2)) $1 (getUtilDataConst $2)) $3 (getUtilDataConst $2) }
+            | Unary_infix                                                   { $1 }
+                    
+Unary_infix : unary_op Left_expr                                            { FunAppExprAST (ConstExprAST (convert_unary_op $1) (getUtilData $1)) $2 (getUtilData $1) }
+            | Left_expr                                                     { $1 }
+                    
+Left_expr   : Match                                                         { $1 }
+            | Let_in                                                        { $1 }
+            | Case                                                          { $1 }
+            | Func_expr                                                     { $1 }
+                    
+Func_expr   : Func_expr Lit_expr                                            { FunAppExprAST $1 $2 (getUtilDataExpr $1) }
+            | Lit_expr                                                      { $1 }
+                    
+Lit_expr    : Lambda                                                        { $1 }
+            | Literal                                                       { ConstExprAST $1 (getUtilDataConst $1) }
+            | string                                                        { ListExprAST (handle_string_expr $1) (getUtilData $1) }
+            | type_id                                                       { TypeExprAST (getTypeId $1) (getUtilData $1) }
+            | var_id                                                        { VarExprAST (getVarId $1) (getUtilData $1) }
+            | '.' ConstFun                                                  { ConstExprAST $2 (getUtilData $1) }
+            | io_op                                                         { ConstExprAST (convert_io_op $1) (getUtilData $1) }
+            | '(' Expr ':' Expr ')'                                         { FunAppExprAST (FunAppExprAST (ConstExprAST (AppenConstAST (getUtilData $3)) (getUtilData $3)) $2 (getUtilData $1)) $4 (getUtilData $1) }
+            | '(' Tuple_body ')'                                            { handle_paren $2 (getUtilData $1) }
+            | '[' List_body ']'                                             { ListExprAST $2 (getUtilData $1) }
+                    
+Lambda      : var_id '=>' '{' Expr '}'                                      { LambdaExprAST (getVarId $1) $4 (getUtilData $1) }
+                    
+Tuple_body  : Tuple_body ',' Expr                                           { $1 ++ [$3] }
+            | Expr                                                          { [$1] }
+                    
+List_body   :                                                               { [] }
+            | Tuple_body                                                    { $1 }
+       
 -- end grammar
 
 {

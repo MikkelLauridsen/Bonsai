@@ -52,6 +52,8 @@ instance Ord VarId where
 data ProgAST = ProgAST TypeDclAST VarDclAST UtilData deriving Show
 
 data CompTypeAST = CompSimpleAST TypeId UtilData
+                 | CompSimplePolyAST VarId UtilData
+                 | CompPolyAST TypeId [CompTypeAST] UtilData
                  | CompListAST CompTypeAST UtilData
                  | CompTupleAST [CompTypeAST] UtilData
                  | CompFuncAST CompTypeAST CompTypeAST UtilData
@@ -62,6 +64,7 @@ data TypeVarAST = UntypedVarAST VarId UtilData
                 deriving Show
 
 data TypeDclAST = TypeDclAST TypeId [ConsAST] TypeDclAST UtilData
+                | TypePolyDclAST TypeId [VarId] [ConsAST] TypeDclAST UtilData
                 | EpsTypeDclAST 
                 deriving Show
 

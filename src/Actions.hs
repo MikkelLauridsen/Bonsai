@@ -135,8 +135,6 @@ convert_two_op token@(Token _ (LevelTwoOpToken "==")) = EqualsConstAST (getUtilD
 convert_two_op _    = error "undefined operator."
 
 convert_three_op :: Token -> ConstAST
-convert_three_op token@(Token _ (LevelThreeOpToken "<"))  = LessConstAST (getUtilData token)
-convert_three_op token@(Token _ (LevelThreeOpToken ">"))  = GreaterConstAST (getUtilData token)
 convert_three_op token@(Token _ (LevelThreeOpToken "<=")) = LessOrEqualConstAST (getUtilData token)
 convert_three_op token@(Token _ (LevelThreeOpToken ">=")) = GreaterOrEqualConstAST (getUtilData token)
 convert_three_op _    = error "undefined operator."
