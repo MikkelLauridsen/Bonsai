@@ -123,6 +123,12 @@ data ConstAST = IntConstAST Int UtilData
               | ConcatenateConstAST UtilData
               | AndConstAST UtilData
               | OrConstAST UtilData
+              | BiLShiftConstAST UtilData
+              | BiRShiftConstAST UtilData
+              | BiNotConstAST UtilData
+              | BiAndConstAST UtilData
+              | BiXorConstAST UtilData
+              | BiOrConstAST UtilData
               | OpenReadConstAST UtilData
               | OpenWriteConstAST UtilData
               | CloseConstAST UtilData

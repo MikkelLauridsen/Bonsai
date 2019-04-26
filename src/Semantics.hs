@@ -9,6 +9,7 @@ import System.IO
 import System.Directory
 import Control.Exception
 import Text.Read
+import Data.Bits
 
 -- storage type for variabel environments
 type Binding = (VarId, Values)
@@ -373,6 +374,12 @@ partiallyApply fun@(ReadConstAST _) value           = apply fun [value]
 partiallyApply fun@(ShowConstAST _) value           = apply fun [value]
 partiallyApply fun@(ToIntConstAST _) value          = apply fun [value]
 partiallyApply fun@(ToFloatConstAST _) value        = apply fun [value]
+partiallyApply fun@(BiNotConstAST _) value          = apply fun [value]
+partiallyApply fun@(BiLShiftConstAST _) value       = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(BiRShiftConstAST _) value       = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(BiAndConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(BiXorConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
+partiallyApply fun@(BiOrConstAST _) value           = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(PlusConstAST _) value           = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(MinusConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(TimesConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
@@ -580,16 +587,23 @@ apply :: ConstAST -> [Values] -> IO Values
 
 -- arithmetic operators
 apply (UnaryMinusConstAST utilData) [ConstValue (IntConstAST v1 _)]                                      = return $ ConstValue (IntConstAST (-v1) utilData)
-apply (UnaryMinusConstAST utilData) [ConstValue (FloatConstAST v1 _)]                                    = return $ ConstValue (FloatConstAST (-v1) utilData)
 apply (PlusConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]             = return $ ConstValue (IntConstAST (v1 + v2) utilData)
-apply (PlusConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]         = return $ ConstValue (FloatConstAST (v1 + v2) utilData)
 apply (MinusConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]            = return $ ConstValue (IntConstAST (v1 - v2) utilData)
-apply (MinusConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]        = return $ ConstValue (FloatConstAST (v1 - v2) utilData)
 apply (TimesConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]            = return $ ConstValue (IntConstAST (v1 * v2) utilData)
-apply (TimesConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]        = return $ ConstValue (FloatConstAST (v1 * v2) utilData)
 apply (DivideConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]           = return $ ConstValue (IntConstAST (v1 `div` v2) utilData)
-apply (DivideConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]       = return $ ConstValue (FloatConstAST (v1 / v2) utilData)
 apply (ModuloConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]           = return $ ConstValue (IntConstAST (v1 `mod` v2) utilData)
+
+apply (UnaryMinusConstAST utilData) [ConstValue (FloatConstAST v1 _)]                                    = return $ ConstValue (FloatConstAST (-v1) utilData)
+apply (PlusConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]         = return $ ConstValue (FloatConstAST (v1 + v2) utilData)
+apply (MinusConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]        = return $ ConstValue (FloatConstAST (v1 - v2) utilData)
+apply (TimesConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]        = return $ ConstValue (FloatConstAST (v1 * v2) utilData)
+apply (DivideConstAST utilData) [ConstValue (FloatConstAST v1 _), ConstValue (FloatConstAST v2 _)]       = return $ ConstValue (FloatConstAST (v1 / v2) utilData)
+
+apply (UnaryMinusConstAST utilData) [ConstValue (CharConstAST v1 _)]                                     = return $ ConstValue (CharConstAST (-v1) utilData)
+apply (PlusConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]           = return $ ConstValue (CharConstAST (v1 + v2) utilData)
+apply (MinusConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]          = return $ ConstValue (CharConstAST (v1 - v2) utilData)
+apply (TimesConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]          = return $ ConstValue (CharConstAST (v1 * v2) utilData)
+apply (DivideConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]         = return $ ConstValue (CharConstAST (v1 `div` v2) utilData)
 
 -- boolean operators
 apply (EqualsConstAST utilData) [v1, v2]                                                                 = return $ ConstValue (BoolConstAST (v1 == v2) utilData)
@@ -600,6 +614,21 @@ apply (GreaterOrEqualConstAST utilData) [v1, v2]                                
 apply (LessOrEqualConstAST utilData) [v1, v2]                                                            = return $ ConstValue (BoolConstAST (v1 <= v2) utilData)
 apply (AndConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]            = return $ ConstValue (BoolConstAST (v1 && v2) utilData)
 apply (OrConstAST utilData) [ConstValue (BoolConstAST v1 _), ConstValue (BoolConstAST v2 _)]             = return $ ConstValue (BoolConstAST (v1 || v2) utilData)
+
+-- binary operators
+apply (BiNotConstAST utilData) [ConstValue (IntConstAST v1 _)]                                           = return $ ConstValue (IntConstAST (complement v1) utilData)
+apply (BiLShiftConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]         = return $ ConstValue (IntConstAST (v1 `shiftL` v2) utilData)
+apply (BiRShiftConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]         = return $ ConstValue (IntConstAST (v1 `shiftR` v2) utilData)
+apply (BiAndConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]            = return $ ConstValue (IntConstAST (v1 .&. v2) utilData)
+apply (BiXorConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]            = return $ ConstValue (IntConstAST (v1 `xor` v2) utilData)
+apply (BiOrConstAST utilData) [ConstValue (IntConstAST v1 _), ConstValue (IntConstAST v2 _)]             = return $ ConstValue (IntConstAST (v1 .|. v2) utilData)
+
+apply (BiNotConstAST utilData) [ConstValue (CharConstAST v1 _)]                                          = return $ ConstValue (CharConstAST (complement v1) utilData)
+apply (BiLShiftConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (IntConstAST v2 _)]        = return $ ConstValue (CharConstAST (v1 `shiftL` v2) utilData)
+apply (BiRShiftConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (IntConstAST v2 _)]        = return $ ConstValue (CharConstAST (v1 `shiftR` v2) utilData)
+apply (BiAndConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]          = return $ ConstValue (CharConstAST (v1 .&. v2) utilData)
+apply (BiXorConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]          = return $ ConstValue (CharConstAST (v1 `xor` v2) utilData)
+apply (BiOrConstAST utilData) [ConstValue (CharConstAST v1 _), ConstValue (CharConstAST v2 _)]           = return $ ConstValue (CharConstAST (v1 .|. v2) utilData)
 
 -- list operations
 apply (AppenConstAST _) [v1, ListValue v2]                                                               = return $ ListValue (v1:v2)

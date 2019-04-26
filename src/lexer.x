@@ -82,13 +82,19 @@ tokens :-
 <0>            \/                                                              { stringTerminalToToken LevelTwoOpToken}
 <0>            \%                                                              { stringTerminalToToken LevelTwoOpToken}
 <0>            \=\=                                                            { stringTerminalToToken LevelTwoOpToken}
+<0>            b\&                                                             { stringTerminalToToken LevelTwoOpToken}
+<0>            b\^                                                             { stringTerminalToToken LevelTwoOpToken}
+<0>            b\|                                                             { stringTerminalToToken LevelTwoOpToken}
 <0>            \<                                                              { terminalToToken AngleOpenToken} 
 <0>            \>                                                              { terminalToToken AngleCloseToken}
 <0>            \<\=                                                            { stringTerminalToToken LevelThreeOpToken}
 <0>            \>\=                                                            { stringTerminalToToken LevelThreeOpToken}
+<0>            b\<\<                                                           { stringTerminalToToken LevelThreeOpToken}
+<0>            b\>\>                                                           { stringTerminalToToken LevelThreeOpToken}
 <0>            \:                                                              { terminalToToken ConsToken}
 <0>            \!                                                              { stringTerminalToToken UnaryOpToken}
 <0>            \~                                                              { stringTerminalToToken UnaryOpToken}
+<0>            b\~                                                             { stringTerminalToToken UnaryOpToken}
 <0>            \"                                                              { enterString `andBegin` state_string} --" switch to the string state
 <0>            \'                                                              { enterChar `andBegin` state_char} -- switch to the char state
 -- token rules associated with string state

@@ -78,6 +78,12 @@ getUtilDataConst (DeleteConstAST utilData) = utilData
 getUtilDataConst (ShowConstAST utilData) = utilData
 getUtilDataConst (ToIntConstAST utilData) = utilData
 getUtilDataConst (ToFloatConstAST utilData) = utilData
+getUtilDataConst (BiLShiftConstAST utilData) = utilData
+getUtilDataConst (BiRShiftConstAST utilData) = utilData
+getUtilDataConst (BiNotConstAST utilData) = utilData
+getUtilDataConst (BiAndConstAST utilData) = utilData
+getUtilDataConst (BiXorConstAST utilData) = utilData
+getUtilDataConst (BiOrConstAST utilData) = utilData
 
 getVarId :: Token -> VarId
 getVarId (Token _ (VarIdToken name)) = VarId name Untyped
@@ -132,16 +138,22 @@ convert_two_op token@(Token _ (LevelTwoOpToken "*"))  = TimesConstAST (getUtilDa
 convert_two_op token@(Token _ (LevelTwoOpToken "/"))  = DivideConstAST (getUtilData token)
 convert_two_op token@(Token _ (LevelTwoOpToken "%"))  = ModuloConstAST (getUtilData token)
 convert_two_op token@(Token _ (LevelTwoOpToken "==")) = EqualsConstAST (getUtilData token)
+convert_two_op token@(Token _ (LevelTwoOpToken "b&")) = BiAndConstAST (getUtilData token)
+convert_two_op token@(Token _ (LevelTwoOpToken "b^")) = BiXorConstAST (getUtilData token)
+convert_two_op token@(Token _ (LevelTwoOpToken "b|")) = BiOrConstAST (getUtilData token)
 convert_two_op _    = error "undefined operator."
 
 convert_three_op :: Token -> ConstAST
-convert_three_op token@(Token _ (LevelThreeOpToken "<=")) = LessOrEqualConstAST (getUtilData token)
-convert_three_op token@(Token _ (LevelThreeOpToken ">=")) = GreaterOrEqualConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken "<="))  = LessOrEqualConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken ">="))  = GreaterOrEqualConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken "b<<")) = BiLShiftConstAST (getUtilData token)
+convert_three_op token@(Token _ (LevelThreeOpToken "b>>")) = BiRShiftConstAST (getUtilData token)
 convert_three_op _    = error "undefined operator."
 
 convert_unary_op :: Token -> ConstAST
-convert_unary_op token@(Token _ (UnaryOpToken "!")) = NotConstAST (getUtilData token)
-convert_unary_op token@(Token _ (UnaryOpToken "~")) = UnaryMinusConstAST (getUtilData token)
+convert_unary_op token@(Token _ (UnaryOpToken "!"))  = NotConstAST (getUtilData token)
+convert_unary_op token@(Token _ (UnaryOpToken "~"))  = UnaryMinusConstAST (getUtilData token)
+convert_unary_op token@(Token _ (UnaryOpToken "b~")) = BiNotConstAST (getUtilData token)
 convert_unary_op _   = error "undefined operator."
 
 convert_io_op :: Token -> ConstAST
