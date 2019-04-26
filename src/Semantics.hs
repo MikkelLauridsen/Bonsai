@@ -30,15 +30,15 @@ type Sig = Set TermConstructor
 data Values = ConstValue ConstAST
             | TerValue TypeId
             | TerConsValue TypeId Values
-            | ClosureValue VarId ExprAST Env Sig
-            | RecClosureValue VarId VarId ExprAST Env Sig
+            | ClosureValue VarId ExprAST Env
+            | RecClosureValue VarId VarId ExprAST Env
             | SystemValue Integer
             | FileValue (Maybe Handle) Integer
             | PredefinedFileValue String Integer
             | TupleValue [Values]
             | ListValue [Values]
             | PartialValue (Values -> IO Values)
-            | LazyValue ExprAST Env
+            | LazyValue ExprAST
 
 -- an instance of Eq for Values must be declared for the == operator
 -- Not all types can be compared, specifically functions
@@ -158,29 +158,33 @@ getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (
 -- interpret corresponds to (prog)
 -- requires an additional file path for error messages
 -- all transition rule functions either return an error message 
--- or the specified type from the rule
-interpret :: FilePath -> ProgAST -> IO (Either String Values)
+-- or the specified type from the associated transition system
+interpret :: FilePath -> ProgAST -> IO (Either String (Values, Env))
 interpret path (ProgAST dt dv _) = do
     maybeSigma <- evalTypeDcl dt (Set.empty)
     case maybeSigma of
         (Left msg)    -> return $ Left (path ++ ":" ++ msg)
         (Right sigma) -> do
-            maybeEnv <- evalVarDcl dv initEnv sigma
-            case maybeEnv of
+            maybeEnvg <- evalVarDcl dv Map.empty sigma
+            case maybeEnvg of
                 (Left msg)  -> return $ Left (path ++ ":" ++ msg)
-                (Right env) -> do
-                    let maybeMain = env `getVar` (VarId "main" Untyped)
+                (Right envg) -> do
+                    let maybeMain = envg `getVar` (VarId "main" Untyped)
                     case maybeMain of
                         Nothing -> return $ Left (path ++ ":--:--: error: main is not defined")
-                        (Just (RecClosureValue _ x e env2 sigma2)) -> do
-                            let env' = env2 `except` (x, SystemValue 0)
-                            res <- evalExpr e env' sigma2
-                            case res of
-                                (Left msg)      -> return $ Left (path ++ ":" ++ msg)
-                                value@(Right _) -> return value
-                        _ -> return $ Left (path ++ ":--:--: error: invalid main signature")       
+                        (Just (LazyValue e)) -> do
+                            maybeTuple <- evalExpr e initEnv envg sigma
+                            case maybeTuple of
+                                err@(Left _) -> return err
+                                (Right ((ClosureValue x e env2), envg')) -> do
+                                    let env' = env2 `except` (x, SystemValue 0)
+                                    res <- evalExpr e env' envg' sigma
+                                    case res of
+                                        (Left msg)      -> return $ Left (path ++ ":" ++ msg)
+                                        tuple@(Right _) -> return tuple
+                                _ -> return $ Left (path ++ ":--:--: error: invalid main signature")       
     where
-        -- set up the initial variabel environment containing I/O variables
+        -- set up the initial variable environment containing I/O variables
         stdin'  = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
         initEnv = Map.fromList [(VarId "stdin" Untyped, stdin'), (VarId "stdout" Untyped, stdout')] 
@@ -214,7 +218,7 @@ handleTypeDcl typeId cons dt' sigma utilData =
 -- implementation of (varErk-1) and (varErk-2)
 -- returns an error message if:
 --  1. the same variable name is declared more than once
--- otherwise, a recursively defined variabel environment is returned 
+-- otherwise, a recursively defined variable environment full of lazy values is returned 
 evalVarDcl :: VarDclAST -> Env -> Sig -> IO (Either String Env)
 evalVarDcl dv env sigma =
     case dv of
@@ -222,15 +226,9 @@ evalVarDcl dv env sigma =
         VarDclAST xt expr dv' utilData ->
             case Map.lookup x env of
                 (Just _) -> return $ Left (formatErr ("cannot redeclare variable '" ++ (varName x) ++ "'") utilData)
-                Nothing  -> do
-                    maybeValue <- evalExpr expr env sigma
-                    case maybeValue of
-                        (Left msg)    -> return $ Left msg
-                        (Right value) ->
-                            case value of
-                                (ClosureValue x' e' env2 sigma') -> evalVarDcl dv' (env `except` (x, RecClosureValue x x' e' env2 sigma')) sigma
-                                _                                -> evalVarDcl dv' (env `except` (x, value)) sigma
+                Nothing  -> evalVarDcl dv' (env `except` (x, value)) sigma
             where
+                value = LazyValue expr
                 -- extract 'x' from the AST
                 x = case xt of
                     UntypedVarAST varId _ -> varId
@@ -240,113 +238,129 @@ evalVarDcl dv env sigma =
 -- implementation of rules (const), (lambda), (ter)
 -- returns an error message if:
 --  1. any of the transition rule implementations returns an error message
--- otherwise, returns a Bonsai value
-evalExpr :: ExprAST -> Env -> Sig -> IO (Either String Values)
-evalExpr expr env sigma = do
+-- otherwise, returns a Bonsai value and the updated global variable environment
+evalExpr :: ExprAST -> Env -> Env -> Sig -> IO (Either String (Values, Env))
+evalExpr expr env envg sigma = do
     case expr of
-        (VarExprAST varId utilData)            -> evalVarExpr varId env sigma utilData
-        (TypeExprAST typeId utilData)          -> evalTer typeId sigma utilData
-        (ConstExprAST c _)                     -> return $ Right (ConstValue c)
-        (ParenExprAST expr' _)                 -> evalExpr expr' env sigma
-        (LambdaExprAST varId expr' _)          -> return $ Right (ClosureValue varId expr' env sigma)
-        (FunAppExprAST expr1 expr2 _)          -> evalFunApp expr1 expr2 env sigma
-        (TupleExprAST exprs _)                 -> evalTuple exprs env sigma
-        (ListExprAST exprs _)                  -> evalList exprs env sigma
-        (CaseExprAST branches utilData)        -> evalCase branches env sigma utilData
-        (LetInExprAST xt expr1 expr2 _)        -> evalLetIn xt expr1 expr2 env sigma
+        (VarExprAST varId utilData)            -> evalVarExpr varId env envg sigma utilData
+        (TypeExprAST typeId utilData)          -> evalTer typeId envg sigma utilData
+        (ConstExprAST c _)                     -> return $ Right (ConstValue c, envg)
+        (ParenExprAST expr' _)                 -> evalExpr expr' env envg sigma
+        (LambdaExprAST varId expr' _)          -> return $ Right (ClosureValue varId expr' env, envg)
+        (FunAppExprAST expr1 expr2 _)          -> evalFunApp expr1 expr2 env envg sigma
+        (TupleExprAST exprs _)                 -> evalTuple exprs env envg sigma
+        (ListExprAST exprs _)                  -> evalList exprs env envg sigma
+        (CaseExprAST branches utilData)        -> evalCase branches env envg sigma utilData
+        (LetInExprAST xt expr1 expr2 _)        -> evalLetIn xt expr1 expr2 env envg sigma
         (MatchExprAST expr' branches utilData) -> do
-            maybeValue <- evalExpr expr' env sigma
+            maybeValue <- evalExpr expr' env envg sigma
             case maybeValue of
                 err@(Left _) -> return err 
-                (Right value) -> evalMatch value branches env sigma utilData
+                (Right (value, envg')) -> evalMatch value branches env envg' sigma utilData
 
 -- implementation of transition rule (var)
 -- returns an error message if:
---  1. the specified variable is not defined in the known variable environment
--- otherwise, returns the bound value
-evalVarExpr :: VarId -> Env -> Sig -> UtilData -> IO (Either String Values)
-evalVarExpr varId env _ utilData =
-    case maybeValue of
-        Nothing      -> return $ Left (formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData)
-        (Just value) -> return $ Right value
+--  1. the specified variable is not defined in the known variable environments
+-- otherwise, returns the bound value and the global variabel environment
+-- if the variable is not bound in the local environment, we check the global
+-- if it is a LazyValue, it is evaluated and the result as well as the updated global environment are returned
+evalVarExpr :: VarId -> Env -> Env -> Sig -> UtilData -> IO (Either String (Values, Env))
+evalVarExpr varId env envg sigma utilData =
+    case maybeValue1 of
+        (Just value) -> return $ Right (value, envg)
+        Nothing      -> 
+            case maybeValue2 of
+                (Just (LazyValue e)) -> do
+                    maybeTuple <- evalExpr e env envg sigma
+                    case maybeTuple of
+                        err@(Left _) -> return err
+                        (Right (ClosureValue x' e' env', envg')) -> do
+                            let value = RecClosureValue varId x' e' env'
+                            return $ Right (value, envg' `except` (varId, value))
+                        (Right (value, envg')) -> return $ Right (value, envg' `except` (varId, value))
+                (Just value) -> return $ Right (value, envg)
+                Nothing -> return $ Left (formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData)
     where
-        maybeValue = env `getVar` varId
+        maybeValue1 = env `getVar` varId
+        maybeValue2 = envg `getVar` varId
 
 -- implementation of transition rule (ter)
 -- return an error message if:
 --  1. the termconstructor is not known in Sigma
 -- otherwise, returns the termconstructor as a Bonsai value
-evalTer :: TypeId -> Sig -> UtilData -> IO (Either String Values)
-evalTer t sigma utilData = 
+-- as well as the input global variable environment
+evalTer :: TypeId -> Env -> Sig -> UtilData -> IO (Either String (Values, Env))
+evalTer t envg sigma utilData = 
     if sigma `has` t
-        then return $ Right (TerValue t)
+        then return $ Right (TerValue t, envg)
         else return $ Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
 
 -- implementation of transition rule (tupe-1) and (type-2)
 -- returns an error message if:
 --  1. any of the immediate constituents result in an error message
--- otherwise, returns a Bonsai tuple value
-evalTuple :: [ExprAST] -> Env -> Sig -> IO (Either String Values)
-evalTuple exprs env sigma = do
-    maybeBody <- evalExprs exprs env sigma
+-- otherwise, returns a Bonsai tuple value and the updated global variable environment
+evalTuple :: [ExprAST] -> Env -> Env -> Sig -> IO (Either String (Values, Env))
+evalTuple exprs env envg sigma = do
+    maybeBody <- evalExprs exprs env envg sigma
     case maybeBody of
         (Left msg)   -> return $ Left msg
-        (Right body) -> return $ Right (TupleValue body)
+        (Right (body, envg')) -> return $ Right (TupleValue body, envg')
 
 -- implementation of transition rule (list-1) and (list-2)
 -- returns an error message if:
 --  1. any of the immediate constituents result in an error message
--- otherwise, returns a Bonsai list value
-evalList :: [ExprAST] -> Env -> Sig -> IO (Either String Values)
-evalList exprs env sigma = do
-    maybeBody <- evalExprs exprs env sigma
+-- otherwise, returns a Bonsai list value and the updated global variable environment
+evalList :: [ExprAST] -> Env -> Env -> Sig -> IO (Either String (Values, Env))
+evalList exprs env envg sigma = do
+    maybeBody <- evalExprs exprs env envg sigma
     case maybeBody of
         (Left msg)   -> return $ Left msg
-        (Right body) -> return $ Right (ListValue body)
+        (Right (body, envg')) -> return $ Right (ListValue body, envg')
 
 -- helper function for evalTuple and evalList
 -- evaluates each expression AST in input list
 -- returns an error message if:
 --  1. any of the elements result in an error message
--- otherwise, returns a list of Bonsai values
-evalExprs :: [ExprAST] -> Env -> Sig -> IO (Either String [Values])
-evalExprs [] _ _           = return $ Right []
-evalExprs (e:es) env sigma = do 
-    maybeValue <- evalExpr e env sigma
-    case maybeValue of
+-- otherwise, returns a list of Bonsai values and the updated global variable environment
+evalExprs :: [ExprAST] -> Env -> Env -> Sig -> IO (Either String ([Values], Env))
+evalExprs [] _ envg _           = return $ Right ([], envg)
+evalExprs (e:es) env envg sigma = do 
+    maybeTuple <- evalExpr e env envg sigma
+    case maybeTuple of
         (Left msg)    -> return $ Left msg
-        (Right value) -> do
-            maybeValues <- evalExprs es env sigma
-            case maybeValues of
+        (Right (value, envg')) -> do
+            maybeTuple' <- evalExprs es env envg' sigma
+            case maybeTuple' of
                 (Left msg)     -> return $ Left msg
-                (Right values) -> return $ Right (value:values)
+                (Right (values, envg2)) -> return $ Right ((value:values), envg2)
 
 -- implementation of transition rules (andv-1), (andv-2), (andv-3), (andv-4) and (andv-5)
 -- returns an error message if:
 --  1. expr1 results in an error message when evaluated
 --  2. expr2 results in an error message when evaluated
 -- otherwise, returns a Bonsai value corresponding to the applied function
-evalFunApp :: ExprAST -> ExprAST -> Env -> Sig -> IO (Either String Values)
-evalFunApp expr1 expr2 env sigma = do
-    maybeValue <- evalExpr expr1 env sigma
-    case maybeValue of
+-- and the updated global variable environment
+evalFunApp :: ExprAST -> ExprAST -> Env -> Env -> Sig -> IO (Either String (Values, Env))
+evalFunApp expr1 expr2 env envg sigma = do
+    maybeTuple <- evalExpr expr1 env envg sigma
+    case maybeTuple of
         (Left msg) -> return $ Left msg
-        (Right v)  -> do
-            maybeValue' <- evalExpr expr2 env sigma
-            case maybeValue' of
+        (Right (v, envg'))  -> do
+            maybeTuple' <- evalExpr expr2 env envg' sigma
+            case maybeTuple' of
                 (Left msg) -> return $ Left msg
-                (Right v') -> 
+                (Right (v', envg2)) -> 
                     case v of
                         (ConstValue c)                      -> do 
                             applied <- partiallyApply c v'
-                            return $ Right applied
+                            return $ Right (applied, envg2)
                         (PartialValue f)                    -> do 
                             applied <- f v'
-                            return $ Right applied
-                        (ClosureValue x e env' sigma')      -> evalExpr e (env' `except` (x, v')) sigma'
-                        (RecClosureValue f x e env' sigma') -> evalExpr e ((env' `except` (x, v')) `except` (f, v)) sigma'   
-                        (TerValue t)                        -> return $ Right (TerConsValue t v')
-                        _                                   -> error "invalid function type." -- should be prevented by typesystem
+                            return $ Right (applied, envg2)
+                        (ClosureValue x e env')      -> evalExpr e (env' `except` (x, v')) envg2 sigma
+                        (RecClosureValue f x e env') -> evalExpr e ((env' `except` (x, v')) `except` (f, v)) envg2 sigma
+                        (TerValue t)                 -> return $ Right (TerConsValue t v', envg2)
+                        _                            -> error "invalid function type." -- should be prevented by typesystem
 
 -- helper function for evalFunApp
 -- returns the result of apply(c,v)
@@ -384,15 +398,16 @@ partiallyApply _ _                                  = error "cannot partially ap
 -- returns an error message if:
 --  1. either expr1 or expr2 results in an error message when evaluated
 -- otherwise, returns a Bonsai value
-evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> IO (Either String Values)
-evalLetIn xt expr1 expr2 env sigma = do
-    maybeValue <- evalExpr expr1 env sigma
-    case maybeValue of
+-- and the updated global variable environment
+evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Env -> Sig -> IO (Either String (Values, Env))
+evalLetIn xt expr1 expr2 env envg sigma = do
+    maybeTuple <- evalExpr expr1 env envg sigma
+    case maybeTuple of
         err@(Left _)  -> return err
-        (Right value) ->
+        (Right (value, envg')) ->
             case value of
-                (ClosureValue x' expr' env' sigma') -> evalExpr expr2 (env `except` (x, RecClosureValue x x' expr' env' sigma')) sigma
-                _                                   -> evalExpr expr2 (env `except` (x, value)) sigma
+                (ClosureValue x' expr' env') -> evalExpr expr2 (env `except` (x, RecClosureValue x x' expr' env')) envg' sigma
+                _                            -> evalExpr expr2 (env `except` (x, value)) envg' sigma
             where
                 -- extract x from AST
                 x = case xt of
@@ -406,30 +421,32 @@ evalLetIn xt expr1 expr2 env sigma = do
 --  2. no branch is acceptable - that is: non-exhaustive branches
 --  3. any evaluated 'predicate' results in an error message 
 -- otherwise, returns the value the chosen branch evaluates to
-evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
-evalCase [] _ _ utilData = return $ Left (formatErr "non-exhaustive case branches" utilData)
-evalCase ((pred', expr'):branches') env sigma utilData = do
-    maybeRes <- handlePred pred' env sigma
-    case maybeRes of
+-- and the updated global variable environment
+evalCase :: [(PredAST, ExprAST)] -> Env -> Env -> Sig -> UtilData -> IO (Either String (Values, Env))
+evalCase [] _ _ _ utilData = return $ Left (formatErr "non-exhaustive case branches" utilData)
+evalCase ((pred', expr'):branches') env envg sigma utilData = do
+    maybeTuple <- handlePred pred' env envg sigma
+    case maybeTuple of
         (Left msg)  -> return $ Left msg
-        (Right res) ->
+        (Right (res, envg')) ->
             if res
-                then evalExpr expr' env sigma
-                else evalCase branches' env sigma utilData
+                then evalExpr expr' env envg' sigma
+                else evalCase branches' env envg' sigma utilData
 
 -- helper function for evalCase
 -- returns an error message if:
 --  1. the specified 'predicate' results in an error message when evaluated
 -- otherwise, returns a boolean value indicating whether the branch is accepted
-handlePred :: PredAST -> Env -> Sig -> IO (Either String Bool)
-handlePred (PredWildAST _) _ _            = return $ Right True
-handlePred (PredExprAST expr _) env sigma = do 
-    maybeValue <- evalExpr expr env sigma
-    case maybeValue of
+-- and the updated global variable environment
+handlePred :: PredAST -> Env -> Env -> Sig -> IO (Either String (Bool, Env))
+handlePred (PredWildAST _) _ envg _            = return $ Right (True, envg)
+handlePred (PredExprAST expr _) env envg sigma = do 
+    maybeTuple <- evalExpr expr env envg sigma
+    case maybeTuple of
         (Left msg) -> return $ Left msg
-        (Right value) ->
+        (Right (value, envg')) ->
             case value of
-                (ConstValue (BoolConstAST b _)) -> return $ Right b
+                (ConstValue (BoolConstAST b _)) -> return $ Right (b, envg')
                 _                               -> error "case condition must be a predicate or wildcard." -- should be prevented by typesystem
 
 -- implementation of transition rule (match)
@@ -441,18 +458,19 @@ handlePred (PredExprAST expr _) env sigma = do
 --  4. no branch is acceptable - that is: non-exhaustive branches
 --  5. the same variable name is bound more than once in a pattern 
 -- otherwise, returns the value the chosen branch evaluates to
-evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Sig -> UtilData -> IO (Either String Values)
-evalMatch _ [] _ _ utilData                                  = return $ Left (formatErr "non-exhaustive match branches" utilData)
-evalMatch value ((pat', expr'):branches') env sigma utilData =
+-- and the updated global variable environment
+evalMatch :: Values -> [(PatternAST, ExprAST)] -> Env -> Env -> Sig -> UtilData -> IO (Either String (Values, Env))
+evalMatch _ [] _ _ _ utilData                                     = return $ Left (formatErr "non-exhaustive match branches" utilData)
+evalMatch value ((pat', expr'):branches') env envg sigma utilData =
     case match value pat' sigma of
         (Left msg)  -> return $ Left msg
         (Right res) ->  
             case res of
-                MatchFail      -> evalMatch value branches' env sigma utilData
+                MatchFail      -> evalMatch value branches' env envg sigma utilData
                 Bindings delta -> 
                     case findConflicts delta of
                         (Just msg) -> return $ Left (formatErr ("variable '" ++ msg ++ "' cannot be bound more than once in the same pattern") utilData)
-                        Nothing    -> evalExpr expr' (applyBindings env delta) sigma
+                        Nothing    -> evalExpr expr' (applyBindings env delta) envg sigma
 
 -- helper function for evalMatch
 -- returns the name of a bounded variable,

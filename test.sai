@@ -24,6 +24,16 @@ type Map<k,v> = {
     | Nil
 }
 
+var main = sys => {
+    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54))
+    in (
+        let (?, stdout') = writes ((show env) ++ "\n") stdout
+        in (
+            writes (show (lookup env "xyyy")) stdout'
+        )
+    )
+}
+
 var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map => {
     key => {
         value => {
@@ -106,16 +116,6 @@ var prompt = s => {
             })
         }
     }
-}
-
-var main = sys => {
-    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54))
-    in (
-        let (?, stdout') = writes ((show env) ++ "\n") stdout
-        in (
-            writes (show (lookup env "xyyy")) stdout'
-        )
-    )
 }
 
 #var main = sys => {
