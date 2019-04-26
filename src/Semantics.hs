@@ -10,14 +10,6 @@ import System.Directory
 import Control.Exception
 import Text.Read
 
--- types are stored as formated strings
-type Sort = String
-
--- signatures for termconstructors
-data Signature = ConstSig Sort -- T
-               | FuncSig Sort Sort -- Composite -> T
-               deriving (Eq, Ord)
-
 -- storage type for variabel environments
 type Binding = (VarId, Values)
 
@@ -25,11 +17,11 @@ type Binding = (VarId, Values)
 data Bindings = MatchFail
               | Bindings [Binding]
 
--- storage type for sets of termconstructor names and associated signatures
-type TermConstructor = (TypeId, Signature)
-
 -- variabel environment type
 type Env = Map VarId Values
+
+-- a termconstructor has a name and the type it belongs to
+type TermConstructor = (TypeId, TypeId)
 
 -- type for sets of termconstructor names and associated signatures
 type Sig = Set TermConstructor
@@ -46,6 +38,7 @@ data Values = ConstValue ConstAST
             | TupleValue [Values]
             | ListValue [Values]
             | PartialValue (Values -> IO Values)
+            | LazyValue ExprAST Env
 
 -- an instance of Eq for Values must be declared for the == operator
 -- Not all types can be compared, specifically functions
@@ -76,16 +69,6 @@ compareLists ((ConstValue c1):l1') ((ConstValue c2):l2') =
         GT -> GT
 compareLists _ _ = error "unsupported list value type for comparison."
 
--- implementation of the sorts function
--- recursively constructs a formated string (Sort)
-sorts :: CompTypeAST -> Sort
-sorts (CompSimpleAST typeId _) = typeName typeId
-sorts (CompSimplePolyAST varId _) = varName varId
-sorts (CompPolyAST typeId comps' _) = typeName typeId ++ "<" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ">"
-sorts (CompListAST comp' _) = "[" ++ sorts comp' ++ "]"
-sorts (CompTupleAST comps' _) = "(" ++ ([sorts comp' | comp' <- comps'] >>= (++ ", ")) ++ ")"
-sorts (CompFuncAST comp1' comp2' _) = sorts comp1' ++ "->" ++ sorts comp2'
-
 -- Convenience functions for variabel environments
 -- and sets of termconstructor names and associated signatures
 except :: Env -> Binding -> Env
@@ -94,32 +77,30 @@ except env (var, value) = Map.insertWith const var value env
 unionSig :: Sig -> Sig -> Sig
 unionSig sigma1 sigma2 = Set.union sigma1 sigma2
 
-getVar :: Env -> VarId -> Maybe Values
-getVar env var = Map.lookup var env
-
+-- checks whether the input termconstructor (by name)
+-- is defined in input set of termconstructors
 has :: Sig -> TypeId -> Bool
 has sigma t = hasRec (Set.toList sigma) t
 
 hasRec :: [TermConstructor] -> TypeId -> Bool
-hasRec [] _                  = False
-hasRec ((t', _):remainder) t = 
+hasRec [] _ = False
+hasRec ((t',_):tcs) t =
     if t' == t
         then True
-        else hasRec remainder t
+        else hasRec tcs t
 
-hasType :: Sig -> Sort -> Bool
-hasType sigma s = hasTypeRec (Set.toList sigma) s
+getVar :: Env -> VarId -> Maybe Values
+getVar env var = Map.lookup var env
 
-hasTypeRec :: [TermConstructor] -> Sort -> Bool
+hasType :: Sig -> TypeId -> Bool
+hasType sigma typ = hasTypeRec (Set.toList sigma) typ
+
+hasTypeRec :: [TermConstructor] -> TypeId -> Bool
 hasTypeRec [] _             = False
-hasTypeRec ((_, s2):tcs) s1 =
-    if (findType s2) == s1
+hasTypeRec ((_, typ'):tcs) typ =
+    if typ' == typ
         then True
-        else hasTypeRec tcs s1
-
-findType :: Signature -> Sort
-findType (ConstSig s)  = s
-findType (FuncSig _ s) = s
+        else hasTypeRec tcs typ
 
 -- checks whether two sets from Sig share Type names 
 -- or termconstructor names
@@ -139,9 +120,9 @@ conflictsHelper ((t1, _):sigma1') sigma2 =
 
 testTypes :: [TermConstructor] -> Sig -> Maybe String
 testTypes [] _                = Nothing
-testTypes ((_, s):tcs) sigma2 =
-    if sigma2 `hasType` (findType s)
-        then Just (findType s)
+testTypes ((_, typ):tcs) sigma2 =
+    if sigma2 `hasType` typ
+        then Just (typeName typ)
         else testTypes tcs sigma2
 
 -- checks whether a set from Sig has multiple instances
@@ -154,10 +135,11 @@ hasConflicts ((t, _):tcs) =
         then Just (typeName t)
         else hasConflicts tcs
 
--- constructs a TermConstructor value from an AST and a type id
+-- extracts type information from a termconstructor declaration
+-- and returns a tuple containing the termconstructor- and type name
 evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
-evaluateTermCons (SingleConsAST t _) typeId          = (t, ConstSig (typeName typeId))
-evaluateTermCons (DoubleConsAST t compType _) typeId = (t, FuncSig (sorts compType) (typeName typeId))
+evaluateTermCons (SingleConsAST t _) typ   = (t, typ)
+evaluateTermCons (DoubleConsAST t _ _) typ = (t, typ)
 
 -- returns a formated error message
 -- based on input message and utility data
