@@ -109,7 +109,7 @@ var prompt = s => {
 }
 
 var main = sys => {
-    let env = (bind (bind Nil "x" (IntValue 32)) "xyyy" (FloatValue 54))
+    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54))
     in (
         let (?, stdout') = writes ((show env) ++ "\n") stdout
         in (

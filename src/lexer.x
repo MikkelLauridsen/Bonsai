@@ -59,6 +59,7 @@ tokens :-
 <0>            \-? $digit+\.$digit+                                            { stringTerminalToToken (FloatToken . read)}
 <0>            ($upper | $upper [$alpha $digit \_]* [$alpha $digit]) \'? \*?   { stringTerminalToToken TypeIdToken}
 <0>            ($lower | $lower [$alpha $digit \_]* [$alpha $digit]) \'?       { stringTerminalToToken VarIdToken}
+<0>            0x [$digit $upper]+                                             { stringTerminalToToken (IntToken . read)}
 <0>            \|                                                              { terminalToToken GuardToken}
 <0>            \.                                                              { terminalToToken EscapeToken}
 <0>            \=                                                              { terminalToToken DeclareToken}
