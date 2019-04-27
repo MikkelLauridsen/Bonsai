@@ -16,6 +16,8 @@ module Ast
     , initUtilData
     ) where
 
+import Data.Word (Word8) 
+
 type Sort = String
 
 data UtilData = UtilData { 
@@ -106,7 +108,7 @@ data PatternAST = ConstPatternAST ConstAST UtilData
 data ConstAST = IntConstAST Int UtilData
               | BoolConstAST Bool UtilData
               | FloatConstAST Float UtilData
-              | CharConstAST Char UtilData
+              | CharConstAST Word8 UtilData
               | UnaryMinusConstAST UtilData
               | PlusConstAST UtilData
               | MinusConstAST UtilData

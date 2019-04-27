@@ -10,6 +10,9 @@ import System.Directory
 import Control.Exception
 import Text.Read
 import Data.Bits
+import Data.Word (Word8) 
+import Unsafe.Coerce (unsafeCoerce) 
+import Data.Char (chr)
 
 -- storage type for variabel environments
 type Binding = (VarId, Values)
@@ -683,23 +686,23 @@ apply (ReadConstAST _) [file@(FileValue (Just handle) _)] = do
     e <- try (hGetChar handle) :: IO (Either IOException Char)
     case e of
         (Left e)   -> return $ TupleValue [falseValue, emptyCharValue, f]
-        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST ch initUtilData), f]
+        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST (toWord8 ch) initUtilData), f]
     where
         f = advanceFile file
 
 apply (WriteConstAST _) [_, file@(FileValue Nothing _)] = do
     return $ TupleValue [falseValue, advanceFile file]
 
-apply (WriteConstAST _) [(ConstValue (CharConstAST ch _)), file@(FileValue (Just handle) _)] = do
-    e <- try (hPutChar handle ch) :: IO (Either IOException ())
+apply (WriteConstAST _) [(ConstValue (CharConstAST w8 _)), file@(FileValue (Just handle) _)] = do
+    e <- try (hPutChar handle (toChar w8)) :: IO (Either IOException ())
     case e of
         (Left e)  -> return $ TupleValue [falseValue, f]
         (Right _) -> return $ TupleValue [trueValue, f]
     where
         f = advanceFile file
 
-apply (WriteConstAST _) [(ConstValue (CharConstAST ch _)), file@(PredefinedFileValue "stdout" _)] = do
-    e <- try (putChar ch) :: IO (Either IOException ())
+apply (WriteConstAST _) [(ConstValue (CharConstAST w8 _)), file@(PredefinedFileValue "stdout" _)] = do
+    e <- try (putChar (toChar w8)) :: IO (Either IOException ())
     hFlush stdout
     case e of
         (Left e)  -> return $ TupleValue [falseValue, f]
@@ -711,7 +714,7 @@ apply (ReadConstAST _) [file@(PredefinedFileValue "stdin" _)] = do
     e <- try getChar :: IO (Either IOException Char)
     case e of
         (Left e)  -> return $ TupleValue [falseValue, emptyCharValue, f]
-        (Right c) -> return $ TupleValue [trueValue, (ConstValue (CharConstAST c initUtilData)), f]
+        (Right c) -> return $ TupleValue [trueValue, (ConstValue (CharConstAST (toWord8 c) initUtilData)), f]
     where
         f = advanceFile file
 
@@ -727,15 +730,15 @@ apply (ShowConstAST _) [TerConsValue t v] = do
         (ListValue l) -> return $ ListValue (stringToValueList (typeName t) ++ space ++ l)
         _             -> error "must be a list."
         where
-            space = [ConstValue (CharConstAST ' ' initUtilData)]
+            space = [ConstValue (CharConstAST (toWord8 ' ') initUtilData)]
 
 apply (ShowConstAST _) [ListValue l] = do 
     l' <- showList' l
-    return $ ListValue ([ConstValue (CharConstAST '[' initUtilData)] ++ getValueList l' ++ [ConstValue (CharConstAST ']' initUtilData)])
+    return $ ListValue ([ConstValue (CharConstAST (toWord8 '[') initUtilData)] ++ getValueList l' ++ [ConstValue (CharConstAST (toWord8 ']') initUtilData)])
 
 apply (ShowConstAST _) [TupleValue l] = do 
     l' <- showList' l
-    return $ ListValue ([ConstValue (CharConstAST '(' initUtilData)] ++ getValueList l' ++ [ConstValue (CharConstAST ')' initUtilData)])
+    return $ ListValue ([ConstValue (CharConstAST (toWord8 '(') initUtilData)] ++ getValueList l' ++ [ConstValue (CharConstAST (toWord8 ')') initUtilData)])
 
 apply (ToIntConstAST _) [ListValue cs] =
     return $ case readMaybe string of
@@ -755,14 +758,25 @@ apply _ _ = error "invalid arguments for apply." -- should be prevented by types
 
 -- helper functions for apply
 
+-- converts the Word8 presentation of Bonsai chars
+-- into a Haskell Char, such that it can be written to file
+toChar :: Word8 -> Char
+toChar w8 = (chr . fromEnum) w8
+
+-- we convert the 4 byte Char into a 1 byte Word8,
+-- which supports typeclasses Ord, Num, Read, Show
+-- this is safe because the lexer only supports ASCII characters
+toWord8 :: Char -> Word8
+toWord8 = unsafeCoerce
+
 valueListToString :: [Values] -> String
 valueListToString [] = ""
-valueListToString ((ConstValue (CharConstAST c _)):cs) = (c:(valueListToString cs))
+valueListToString ((ConstValue (CharConstAST c _)):cs) = ((toChar c):(valueListToString cs))
 valueListToString _ = error "list must be of chars."
 
 stringToValueList :: String -> [Values]
 stringToValueList []     = []
-stringToValueList (c:cs) = ((ConstValue (CharConstAST c initUtilData)):(stringToValueList cs))
+stringToValueList (c:cs) = ((ConstValue (CharConstAST (toWord8 c) initUtilData)):(stringToValueList cs))
 
 advanceSystem :: Values -> Values
 advanceSystem (SystemValue sys) = SystemValue (sys + 1)
@@ -775,7 +789,7 @@ advanceFile _                         = error "cannot advance a non-file value."
 
 trueValue = ConstValue (BoolConstAST True initUtilData)
 falseValue = ConstValue (BoolConstAST False initUtilData)
-emptyCharValue = ConstValue (CharConstAST ' ' initUtilData)
+emptyCharValue = ConstValue (CharConstAST (toWord8 ' ') initUtilData)
 
 getValueList :: Values -> [Values]
 getValueList (ListValue l) = l
@@ -791,4 +805,4 @@ showList' (v:vs) = do
         (ListValue l1, ListValue l2) -> return $ ListValue (l1 ++ spacer ++ l2)
         _ -> error "must be a list."
         where
-            spacer = [ConstValue (CharConstAST ',' initUtilData), ConstValue (CharConstAST ' ' initUtilData)]
+            spacer = [ConstValue (CharConstAST (toWord8 ',') initUtilData), ConstValue (CharConstAST (toWord8 ' ') initUtilData)]

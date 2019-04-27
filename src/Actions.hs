@@ -23,6 +23,8 @@ module Actions
 
 import Ast
 import Lexer
+import Data.Word (Word8) 
+import Unsafe.Coerce (unsafeCoerce) 
 
 getUtilData :: Token -> UtilData
 getUtilData (Token (AlexUserState {currentLine=l, Lexer.position=p, lineNumber=n}) _) = UtilData Untyped (getPosition p n) l
@@ -93,8 +95,14 @@ getTypeId :: Token -> TypeId
 getTypeId (Token _ (TypeIdToken name)) = TypeId name
 getTypeId _ = error "Token must be associated with a type id."
 
-getCharVal :: Token -> Char
-getCharVal (Token _ (CharToken c)) = c
+-- we convert the 4 byte Char into a 1 byte Word8,
+-- which supports typeclasses Ord, Num, Read, Show
+-- this is safe because the lexer only supports ASCII characters
+toWord8 :: Char -> Word8
+toWord8 = unsafeCoerce
+
+getCharVal :: Token -> Word8
+getCharVal (Token _ (CharToken c)) = toWord8 c
 getCharVal _ = error "Token must be associated with a char value."
 
 getIntVal :: Token -> Int
@@ -170,7 +178,7 @@ convert_io_op _ = error "undefined IO operation."
 
 handle_string_expr :: Token -> [ExprAST]
 handle_string_expr (Token _ (StringToken []))         = []
-handle_string_expr token@(Token userState (StringToken (c:cs))) = ((ConstExprAST (CharConstAST c utilData) utilData):(handle_string_expr (Token userState (StringToken cs)))) 
+handle_string_expr token@(Token userState (StringToken (c:cs))) = ((ConstExprAST (CharConstAST (toWord8 c) utilData) utilData):(handle_string_expr (Token userState (StringToken cs)))) 
     where
         utilData = getUtilData token
         
@@ -178,7 +186,7 @@ handle_string_expr _ = error "unexpected token type."
 
 handle_string_pat :: Token -> [PatternAST]
 handle_string_pat (Token _ (StringToken []))         = []
-handle_string_pat token@(Token userState (StringToken (c:cs))) = ((ConstPatternAST (CharConstAST c utilData) utilData):(handle_string_pat (Token userState (StringToken cs)))) 
+handle_string_pat token@(Token userState (StringToken (c:cs))) = ((ConstPatternAST (CharConstAST (toWord8 c) utilData) utilData):(handle_string_pat (Token userState (StringToken cs)))) 
     where
         utilData = getUtilData token
 
