@@ -262,12 +262,12 @@ evalExpr expr env envg sigma = do
                 err@(Left _) -> return err 
                 (Right (value, envg')) -> evalMatch value branches env envg' sigma utilData
 
--- implementation of transition rule (var)
+-- implementation of transition rules (var-1), (var-2), (var-3)
 -- returns an error message if:
 --  1. the specified variable is not defined in the known variable environments
 -- otherwise, returns the bound value and the global variabel environment
 -- if the variable is not bound in the local environment, we check the global
--- if it is a LazyValue, it is evaluated and the result as well as the updated global environment are returned
+-- if it is a LazyValue, it is evaluated and the result as well as the updated global environment is returned
 evalVarExpr :: VarId -> Env -> Env -> Sig -> UtilData -> IO (Either String (Values, Env))
 evalVarExpr varId env envg sigma utilData =
     case maybeValue1 of
