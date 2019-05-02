@@ -13,10 +13,74 @@ module Ast
     , ExprAST(..)
     , PatternAST(..)
     , ConstAST(..)
+    , Types(..)
+    , Prim(..)
+    , TermConstructor(..)
     , initUtilData
+    , AlgebraicType
     ) where
 
-import Data.Word (Word8) 
+import Data.Word (Word8)
+import Data.Set as Set
+
+-- type for sets of algebraic types
+type Sig = Set AlgebraicType
+
+type AlgebraicType = (TypeId, [TermConstructor])
+-- a termconstructor has a name and optionally a signature
+data TermConstructor = ConstConstructor TypeId
+                     | CompConstructor  TypeId Types 
+
+data Types = PrimType Prim
+           | FuncType Types Types
+           | TuplType [Types]
+           | ListType Types
+           | AlgeType TypeId Sig
+           | AlgePoly TypeId [Types] Sig
+           | PolyType String
+           | UniqType Types Bool
+           | OkayType
+           | LazyType ExprAST
+           | LazyPair ExprAST Types
+
+data Prim = IntPrim
+          | FloatPrim
+          | BoolPrim
+          | CharPrim
+          | FilePrim
+          | SystemPrim
+          deriving Eq 
+
+instance Eq Types where
+    PrimType p1 == PrimType p2 = p1 == p2
+    FuncType ta1 tb1 == FuncType ta2 tb2 = ta1 == ta2 && tb1 == tb2
+    TuplType typs1 == TuplType typs2 = typs1 == typs2
+    ListType typ1 == ListType typ2 = typ1 == typ2
+    AlgeType typeId1 _ == AlgeType typeId2 _ = typeId1 == typeId2
+    AlgePoly typeId1 _ _ == AlgePoly typeId2 _ _ = typeId1 == typeId2
+    PolyType name1 == PolyType name2 = name1 == name2
+    UniqType typ1 valid1 == UniqType typ2 valid2 = typ1 == typ2 && valid1 == valid2
+    OkayType == OkayType = True
+    _ == _ = False
+
+instance Show Prim where
+    show IntPrim    = "Int"
+    show FloatPrim  = "Float"
+    show BoolPrim   = "Bool"
+    show CharPrim   = "Char"
+    show FilePrim   = "File"
+    show SystemPrim = "System"
+
+instance Show Types where
+    show (PrimType prim)        = show prim 
+    show (FuncType typ1 typ2)   = "(" ++ show typ1 ++ "->" ++ show typ2 ++ ")"
+    show (TuplType typs')       = "(" ++ ([show typ' | typ' <- typs'] >>= (++ ", ")) ++ ")"
+    show (ListType typ)         = "[" ++ show typ ++ "]"
+    show (AlgeType typeId _)    = typeName typeId
+    show (AlgePoly typeId ps _) = typeName typeId ++ "<" ++ ([show typ' | typ' <- ps] >>= (++ ", ")) ++ ">"
+    show (PolyType name)        = name
+    show (UniqType typ _)       = show typ ++ "*"
+    show _                      = error "cannot convert a lazy type to string" 
 
 type Sort = String
 
@@ -30,8 +94,8 @@ initUtilData :: UtilData
 initUtilData = UtilData Untyped (0, 0, 0) ""
 
 data BonsaiType = Untyped
-                | Typed Sort
-                deriving (Show, Eq, Ord)
+                | Typed Types
+                deriving (Show, Eq)
 
 data TypeId = TypeId { typeName :: String } deriving Show
 data VarId = VarId { 
@@ -86,7 +150,7 @@ data ExprAST = VarExprAST VarId UtilData
              | TypeExprAST TypeId UtilData
              | ConstExprAST ConstAST UtilData
              | ParenExprAST ExprAST UtilData
-             | LambdaExprAST VarId ExprAST UtilData
+             | LambdaExprAST TypeVarAST ExprAST UtilData
              | FunAppExprAST ExprAST ExprAST UtilData
              | TupleExprAST [ExprAST] UtilData
              | ListExprAST [ExprAST] UtilData

@@ -25,14 +25,19 @@ type Map<k,v> = {
 }
 
 var main = sys => {
-    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54))
-    in (
-        let (?, stdout') = writes ((show env) ++ "\n") stdout
-        in (
-            writes (show (lookup env "xyyy")) stdout'
-        )
-    )
+    let xd = .+
+        in (writes (show (xd 5 6)) stdout)
 }
+
+#var main = sys => {
+#    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54))
+#    in (
+#        let (?, stdout') = writes ((show env) ++ "\n") stdout
+#        in (
+#            writes (show (lookup env "xyyy")) stdout'
+#        )
+#    )
+#}
 
 var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map => {
     key => {

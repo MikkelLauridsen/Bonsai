@@ -24,11 +24,9 @@ data Bindings = MatchFail
 -- variabel environment type
 type Env = Map VarId Values
 
--- a termconstructor has a name and the type it belongs to
-type TermConstructor = (TypeId, TypeId)
 
--- type for sets of termconstructor names and associated signatures
-type Sig = Set TermConstructor
+-- type for sets of termconstructor names
+type Sig = Set TypeId
 
 -- Bonsai value type
 data Values = ConstValue ConstAST
@@ -73,7 +71,7 @@ compareLists ((ConstValue c1):l1') ((ConstValue c2):l2') =
         GT -> GT
 compareLists _ _ = error "unsupported list value type for comparison."
 
--- Convenience functions for variabel environments
+-- Convenience functions for variable environments
 -- and sets of termconstructor names and associated signatures
 except :: Env -> Binding -> Env
 except env (var, value) = Map.insertWith const var value env
@@ -84,11 +82,11 @@ unionSig sigma1 sigma2 = Set.union sigma1 sigma2
 -- checks whether the input termconstructor (by name)
 -- is defined in input set of termconstructors
 has :: Sig -> TypeId -> Bool
-has sigma t = hasRec (Set.toList sigma) t
+has sigma t = t `Set.member` sigma
 
-hasRec :: [TermConstructor] -> TypeId -> Bool
+hasRec :: [TypeId] -> TypeId -> Bool
 hasRec [] _ = False
-hasRec ((t',_):tcs) t =
+hasRec (t':tcs) t =
     if t' == t
         then True
         else hasRec tcs t
@@ -96,54 +94,34 @@ hasRec ((t',_):tcs) t =
 getVar :: Env -> VarId -> Maybe Values
 getVar env var = Map.lookup var env
 
-hasType :: Sig -> TypeId -> Bool
-hasType sigma typ = hasTypeRec (Set.toList sigma) typ
-
-hasTypeRec :: [TermConstructor] -> TypeId -> Bool
-hasTypeRec [] _             = False
-hasTypeRec ((_, typ'):tcs) typ =
-    if typ' == typ
-        then True
-        else hasTypeRec tcs typ
-
 -- checks whether two sets from Sig share Type names 
 -- or termconstructor names
 -- returns the type or constructor name if so
 conflicts :: Sig -> Sig -> Maybe String
-conflicts sigma1 sigma2 = 
-    case conflictsHelper (Set.toList sigma1) sigma2 of
-        err@(Just _) -> err
-        Nothing      -> testTypes (Set.toList sigma1) sigma2                        
+conflicts sigma1 sigma2 = conflictsHelper (Set.toList sigma1) sigma2                       
 
-conflictsHelper :: [TermConstructor] -> Sig -> Maybe String
+conflictsHelper :: [TypeId] -> Sig -> Maybe String
 conflictsHelper [] _                     = Nothing
-conflictsHelper ((t1, _):sigma1') sigma2 =
+conflictsHelper (t1:sigma1') sigma2 =
     if sigma2 `has` t1
         then Just (typeName t1)
         else conflictsHelper sigma1' sigma2
 
-testTypes :: [TermConstructor] -> Sig -> Maybe String
-testTypes [] _                = Nothing
-testTypes ((_, typ):tcs) sigma2 =
-    if sigma2 `hasType` typ
-        then Just (typeName typ)
-        else testTypes tcs sigma2
-
 -- checks whether a set from Sig has multiple instances
 -- of the same termconstructor
 -- returns the name if so
-hasConflicts :: [TermConstructor] -> Maybe String
+hasConflicts :: [TypeId] -> Maybe String
 hasConflicts []           = Nothing
-hasConflicts ((t, _):tcs) =
+hasConflicts (t:tcs) =
     if hasRec tcs t
         then Just (typeName t)
         else hasConflicts tcs
 
 -- extracts type information from a termconstructor declaration
--- and returns a tuple containing the termconstructor- and type name
-evaluateTermCons :: ConsAST -> TypeId -> TermConstructor
-evaluateTermCons (SingleConsAST t _) typ   = (t, typ)
-evaluateTermCons (DoubleConsAST t _ _) typ = (t, typ)
+-- and returns the termconstructor name
+evaluateTermCons :: ConsAST -> TypeId
+evaluateTermCons (SingleConsAST t _)   = t
+evaluateTermCons (DoubleConsAST t _ _) = t
 
 -- returns a formated error message
 -- based on input message and utility data
@@ -216,7 +194,7 @@ handleTypeDcl typeId cons dt' sigma utilData =
                 Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
     where
         -- set up the set from Sig in which the termconstructors of 'typeId' are declared 
-        list2  = [evaluateTermCons ts typeId | ts <- cons]
+        list2  = [evaluateTermCons ts | ts <- cons]
         sigma2 = Set.fromList list2
 
 -- implementation of (varErk-1) and (varErk-2)
@@ -250,7 +228,7 @@ evalExpr expr env envg sigma = do
         (TypeExprAST typeId utilData)          -> evalTer typeId envg sigma utilData
         (ConstExprAST c _)                     -> return $ Right (ConstValue c, envg)
         (ParenExprAST expr' _)                 -> evalExpr expr' env envg sigma
-        (LambdaExprAST varId expr' _)          -> return $ Right (ClosureValue varId expr' env, envg)
+        (LambdaExprAST xt expr' _)             -> return $ Right (evalLambda xt expr' env, envg)
         (FunAppExprAST expr1 expr2 _)          -> evalFunApp expr1 expr2 env envg sigma
         (TupleExprAST exprs _)                 -> evalTuple exprs env envg sigma
         (ListExprAST exprs _)                  -> evalList exprs env envg sigma
@@ -261,6 +239,14 @@ evalExpr expr env envg sigma = do
             case maybeValue of
                 err@(Left _) -> return err 
                 (Right (value, envg')) -> evalMatch value branches env envg' sigma utilData
+
+evalLambda :: TypeVarAST -> ExprAST -> Env -> Values
+evalLambda xt expr env = ClosureValue x expr env
+    where
+        x = case xt of
+            UntypedVarAST varId _ -> varId
+            TypedVarAST varId _ _ -> varId
+
 
 -- implementation of transition rules (var-1), (var-2), (var-3)
 -- returns an error message if:

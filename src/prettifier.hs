@@ -64,7 +64,7 @@ instance PrettyShow ExprAST where
     --  (...)
     prettyShow (ParenExprAST expr _) ic = "(" ++ prettyShow expr ic ++ ")"
     --  (...) => {...}
-    prettyShow (LambdaExprAST varId expr _) ic = "(" ++ prettyShow varId ic ++ ") => {" ++ 
+    prettyShow (LambdaExprAST var expr _) ic = "(" ++ prettyShow var ic ++ ") => {" ++ 
         indent ic ++ prettyShow expr (ic + 1) ++
         indent ic ++ "}" 
     --  expr1 expr2

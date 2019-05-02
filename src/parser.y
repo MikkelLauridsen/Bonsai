@@ -189,7 +189,7 @@ Lit_expr    : Lambda                                                        { $1
             | '(' Tuple_body ')'                                            { handle_paren $2 (getUtilData $1) }
             | '[' List_body ']'                                             { ListExprAST $2 (getUtilData $1) }
                     
-Lambda      : var_id '=>' '{' Expr '}'                                      { LambdaExprAST (getVarId $1) $4 (getUtilData $1) }
+Lambda      : Typed_var '=>' '{' Expr '}'                                      { LambdaExprAST $1 $4 (getUtilData $1) }
                     
 Tuple_body  : Tuple_body ',' Expr                                           { $1 ++ [$3] }
             | Expr                                                          { [$1] }

@@ -19,6 +19,7 @@ module Actions
     , getUtilDataProg
     , getUtilDataExpr
     , getUtilDataConst
+    , getUtilDataPat
     ) where
 
 import Ast
@@ -49,6 +50,15 @@ getUtilDataExpr (ListExprAST _ utilData)      = utilData
 getUtilDataExpr (MatchExprAST _ _ utilData)   = utilData
 getUtilDataExpr (CaseExprAST _ utilData)      = utilData
 getUtilDataExpr (LetInExprAST _ _ _ utilData) = utilData
+
+getUtilDataPat (ConstPatternAST _ utilData)      = utilData
+getUtilDataPat (VarPatternAST _ utilData)        = utilData
+getUtilDataPat (TypePatternAST _ utilData)       = utilData
+getUtilDataPat (TypeConsPatternAST _ _ utilData) = utilData
+getUtilDataPat (ListPatternAST _ utilData)       = utilData
+getUtilDataPat (TuplePatternAST _ utilData)      = utilData
+getUtilDataPat (DecompPatternAST _ _ utilData)   = utilData
+getUtilDataPat (WildPatternAST utilData)         = utilData
 
 getUtilDataConst :: ConstAST -> UtilData
 getUtilDataConst (IntConstAST _ utilData) = utilData

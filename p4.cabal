@@ -32,6 +32,7 @@ library
       Ast
       Actions
       Prettifier
+      Typesystem
       Semantics
   other-modules:
       Paths_p4
