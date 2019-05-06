@@ -1,0 +1,101 @@
+type Values = {
+    | IntValue Int
+    | FloatValue Float
+}
+
+type Maybe<a> = {
+    | Just a
+    | Nothing
+}
+
+type Map<k,v> = {
+    | Node (k, v, Map, Map)
+    | Nil
+}
+
+var main = sys::System* => {
+    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54.0))
+    in (
+        let (?, stdout') = writes ((show env) ++ "\n") stdout
+        in (
+            writes (show (lookup env "xyyy")) stdout'
+        )
+    )
+}
+
+var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
+    key::k => {
+        value::v => {
+            match map {
+                | Nil -> Node (key, value, Nil, Nil)
+                | Node (key', value', map1', map2') -> 
+                case {
+                    | key == key' -> Node (key, value, map1', map2')
+                    | key < key'  -> Node (key', value', (bind map1' key value), map2')
+                    | key > key'  -> Node (key', value', map1', (bind map2' key value))
+                }
+            }
+        } 
+    }
+}
+
+var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
+    key::k => {
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
+            }
+        }
+    }
+}
+
+var writes::(String -> (File* -> (Bool, File*))) = s::String => {
+    f::File* => {
+        match s {
+            | []     -> (true, f)
+            | (c:cs) -> 
+                let (succ, f') = write c f 
+                in (case {
+                    | succ == true -> (writes cs f')
+                    | ?            -> (false, f') 
+                })
+        }
+    }
+}
+
+var readLn::(File* -> (Bool, String, File*)) = f::File* => {
+    let (succ, c, f') = read f
+    in (case {
+        | succ == true -> 
+        match c {
+            | '\n' -> (true, ['\n'], f')
+            | ?    -> let (succ2, s, f2') = readLn f'
+                        in (case {
+                             | succ2 == true -> (true, (c:s), f2')
+                             | ?             -> (false, (c:s), f2')
+                            })
+                }
+        | ?            -> (false, [c], f')
+    })
+}
+
+var prompt = s::String => {
+    outf::File* => {
+        inf::File* => {
+            let (succ, outf') = writes s outf
+            in (match succ {
+                | true -> 
+                    let (succ', line, inf') = readLn inf
+                    in (match succ' {
+                        | true -> (true, line, outf', inf')
+                        | ?    -> (false, "", outf', inf')
+                    })
+                | ?    -> (false, "", outf', inf)
+            })
+        }
+    }
+}

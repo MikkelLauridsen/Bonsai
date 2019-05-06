@@ -1,6 +1,6 @@
 module Typesystem
     (
-        
+      typeBonsai
     ) where
 
 import Ast
@@ -14,53 +14,52 @@ import Data.Set as Set
 type Env = Map VarId Types
 
 -- type for sets of algebraic types
-type Sig = Set AlgebraicType
+type Sig = Set TermConstructor
 
 type Binding = (VarId, Types)
 
 extractConsName :: TermConstructor -> TypeId
-extractConsName (ConstConstructor typeId)  = typeId
-extractConsName (CompConstructor typeId _) = typeId
+extractConsName (typeId, _, _)  = typeId
+
+extractTypeName :: Types -> TypeId
+extractTypeName (AlgeType t)   = t
+extractTypeName (AlgePoly t _) = t
+extractTypeName _              = error "type must be algebraic"
 
 getTermType :: Sig -> TypeId -> String
 getTermType sigma t =
-    case maybeTyp of
-        Nothing         -> error "unknown termconstructor"
-        (Just (typ, _)) -> typeName typ
-    where
-        maybeTyp = find fun (Set.toList sigma)
-        fun = \(_, tcs) ->
-            case find (\tc -> extractConsName tc == t) tcs of
-                Nothing  -> False
-                (Just _) -> True
+    case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
+        Nothing               -> error "unknown termconstructor"
+        (Just (_, typ, _)) -> show typ
+
+getTermConstructor :: Sig -> TypeId -> Maybe TermConstructor
+getTermConstructor sigma t = find (\(t', _, _) -> t' == t) (Set.toList sigma)
 
 getSignature :: Sig -> TypeId -> Maybe Types
 getSignature sigma t =
-    case getCons (Set.toList sigma) t of
-        (ConstConstructor _)    -> Nothing
-        (CompConstructor _ sig) -> Just sig
-
-getCons :: [AlgebraicType] -> TypeId -> TermConstructor
-getCons [] t       = error "unknown termconstructor"
-getCons ((_, tcs):typs) t =
-    case find (\tc -> extractConsName tc == t) tcs of
-        Nothing   -> getCons typs t
-        (Just tc) -> tc
+    case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
+        Nothing            -> Nothing
+        (Just (_, _, typ)) -> Just typ
 
 getAlgebraicType :: Sig -> TypeId -> Maybe Types
-getAlgebraicType sigma typeId = find (\(typ, _) -> typ == typeId) (Set.toList sigma)
+getAlgebraicType sigma t =
+    case find (\(_, typ, _) -> extractTypeName typ == t) (Set.toList sigma) of
+        Nothing            -> Nothing
+        (Just (_, typ, _)) -> Just typ
 
 -- checks whether the input termconstructor (by name)
 -- is defined in input set of Algebraic types
 has :: Sig -> TypeId -> Bool
-has sigma t = hasRec (Set.toList sigma) t
+has sigma t =
+    case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
+        Nothing            -> False
+        (Just (_, _, _)) -> True
 
-hasRec :: [AlgebraicType] -> TypeId -> Bool
-hasRec [] _ = False
-hasRec ((_, tcs):typs) t =
-    case find (\tc -> extractConsName tc == t) tcs of
-        Nothing   -> hasRec typs t
-        (Just _)  -> True
+lazyHas :: LazySig -> TypeId -> Bool
+lazyHas ls t =
+    case find (\(t', _) -> t' == t) (Set.toList ls) of
+        Nothing  -> False
+        (Just _) -> True
 
 -- Convenience functions for variable environments
 -- and sets of termconstructor names and associated signatures
@@ -83,20 +82,74 @@ formatErr err UtilData{position=pos, sourceLine=line} =
 getIndicator :: Int -> Int -> String
 getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')
 
-types :: CompTypeAST -> Sig-> Either String Types
-types (CompSimpleAST typeId _) sigma = idToTypes typeId sigma
+buildSignature :: CompTypeAST -> TypeId -> [String] -> LazySig -> Either String Types
+buildSignature (CompSimpleAST typeId utilData) _ _ ls =
+    case lazyIdToTypes typeId ls of
+        Nothing    -> Left (formatErr ("unknown type '" ++ typeName typeId ++ "'") utilData)
+        (Just typ) -> Right typ
+
+buildSignature (CompSimplePolyAST varId utilData) memberType typeVars _ =
+    if elem (varName varId) typeVars
+        then Right $ PolyType (varName varId)
+        else Left (formatErr ("algebraic type '" ++ typeName memberType ++ "' does not have type-variable '" ++ varName varId ++ "' in its signature") utilData)
+
+buildSignature (CompPolyAST typeId comps' utilData) memberType typeVars ls =
+    case lazyIdToTypes typeId ls of
+        Nothing                   -> Left (formatErr ("unknown type '" ++ typeName typeId ++ "'") utilData)
+        (Just (AlgePoly _ polys)) ->
+            if length polys /= length comps'
+                then Left (formatErr ("algebraic type '" ++ typeName typeId ++ "' cannot be applied to " ++ show (length comps') ++ "type(s)") utilData)
+                else case buildSignatureList comps' memberType typeVars ls of
+                    (Left msg)   -> Left msg
+                    (Right typs) -> Right (AlgePoly typeId typs)
+        (Just typ)                -> Left (formatErr ("algebraic type '" ++ show typ ++ "' is not polymorphic") utilData)
+
+buildSignature (CompListAST comp' _) memberType typeVars ls =
+    case buildSignature comp' memberType typeVars ls of
+        err@(Left _) -> err
+        (Right typ)  -> Right $ ListType typ
+
+buildSignature (CompTupleAST comps' _) memberType typeVars ls =
+    case buildSignatureList comps' memberType typeVars ls of
+        (Left msg)   -> Left msg
+        (Right typs) -> Right $ TuplType typs
+
+buildSignature (CompFuncAST comp1' comp2' _) memberType typeVars ls =
+    case buildSignature comp1' memberType typeVars ls of
+        err@(Left _)  -> err
+        (Right typ1)  ->
+            case buildSignature comp2' memberType typeVars ls of
+                err@(Left _) -> err
+                (Right typ2) -> Right (FuncType typ1 typ2)
+
+buildSignatureList :: [CompTypeAST] -> TypeId -> [String] -> LazySig -> Either String [Types]
+buildSignatureList [] _ _ _ = Right []
+buildSignatureList (comp:comps') memberType typeVars ls =
+    case buildSignature comp memberType typeVars ls of
+        (Left msg)  -> Left msg
+        (Right typ) ->
+            case buildSignatureList comps' memberType typeVars ls of
+                err@(Left _) -> err
+                (Right typs) -> Right (typ:typs)
+
+types :: CompTypeAST -> Sig -> Either String Types
+types (CompSimpleAST typeId utilData) sigma =
+    case idToTypes typeId sigma of
+        (Left id)   -> Left (formatErr ("unknown type '" ++ typeName id ++ "'") utilData)
+        (Right typ) -> Right typ
+
 types (CompSimplePolyAST varId _) _  = Right $ PolyType (varName varId)
 
 types (CompPolyAST typeId comps' utilData) sigma = 
     case idToTypes typeId sigma of
         (Left id) -> Left (formatErr ("unknown type '" ++ typeName id ++ "'") utilData)
-        (Right typ@(AlgePoly name polys cons)) ->
+        (Right typ@(AlgePoly name polys)) ->
             case typesList comps' sigma of
                 (Left msg)   -> Left msg
                 (Right typs) ->
                     if length polys == length typs
-                        then AlgePoly name typs cons
-                        else Left (formatErr ("algebraic type '" ++ show typ ++ "' cannot be applied to " ++ length typs ++ "types") utilData)
+                        then Right (AlgePoly name typs)
+                        else Left (formatErr ("algebraic type '" ++ show typ ++ "' cannot be applied to " ++ show (length typs) ++ "type(s)") utilData)
         (Right typ) -> Left (formatErr ("type '" ++ show typ ++ "' cannot be used polymorphically") utilData)
 
 types (CompListAST comp' _) sigma =
@@ -104,8 +157,8 @@ types (CompListAST comp' _) sigma =
         err@(Left _) -> err
         (Right typ)  -> Right $ ListType typ
 
-types (CompTupleAST comps' utilData) sigma =
-    case typesList comps' sigma utilData of
+types (CompTupleAST comps' _) sigma =
+    case typesList comps' sigma of
         (Left msg)   -> Left msg
         (Right typs) -> Right $ TuplType typs
 
@@ -117,13 +170,38 @@ types (CompFuncAST comp1' comp2' _) sigma =
                 err@(Left _) -> err
                 (Right typ2) -> Right (FuncType typ1 typ2)
 
+lazyIdToTypes :: TypeId -> LazySig -> Maybe Types
+lazyIdToTypes id ls =
+    if last (typeName id) == '*'
+        then case stringToNonUniquePrim (init (typeName id)) of
+            (Just typ) -> Just (UniqType typ True)
+            Nothing    ->
+                case find (\(id', _) -> typeName id' == init (typeName id)) (Set.toList ls) of
+                    (Just (typ, polys)) -> 
+                        if length polys == 0
+                            then Just (UniqType (AlgeType typ) True)
+                            else Just (UniqType (AlgePoly typ (stringsToPolyTypes polys)) True)
+                    Nothing             -> Nothing
+        else case stringToNonUniquePrim (typeName id) of
+            (Just typ) -> Just typ
+            Nothing    ->
+                case find (\(id', _) -> id' == id) (Set.toList ls) of
+                    (Just (typ, polys)) -> 
+                        if length polys == 0
+                            then Just $ AlgeType typ
+                            else Just (AlgePoly typ (stringsToPolyTypes polys))
+                    Nothing             -> Nothing
+
+stringsToPolyTypes :: [String] -> [Types]
+stringsToPolyTypes = Data.List.map (\s -> PolyType s)
+
 idToTypes :: TypeId -> Sig -> Either TypeId Types
 idToTypes id sigma =
     if last (typeName id) == '*'
         then case stringToNonUniquePrim (init (typeName id)) of
             (Just typ) -> Right (UniqType typ True)
             Nothing    ->
-                case getAlgebraicType sigma id of
+                case getAlgebraicType sigma (TypeId (init (typeName id))) of
                     (Just typ) -> Right (UniqType typ True)
                     Nothing    -> Left id
         else case stringToNonUniquePrim (typeName id) of
@@ -134,21 +212,129 @@ idToTypes id sigma =
                     Nothing    -> Left id
 
 stringToNonUniquePrim :: String -> Maybe Types
-stringToNonUniquePrim "Int"   = Just $ PrimType IntPrim
-stringToNonUniquePrim "Float" = Just $ PrimType FloatPrim
-stringToNonUniquePrim "Bool"  = Just $ PrimType BoolPrim
-stringToNonUniquePrim "Char"  = Just $ PrimType CharPrim
-stringToNonUniquePrim _       = Nothing
+stringToNonUniquePrim "Int"    = Just $ PrimType IntPrim
+stringToNonUniquePrim "Float"  = Just $ PrimType FloatPrim
+stringToNonUniquePrim "Bool"   = Just $ PrimType BoolPrim
+stringToNonUniquePrim "Char"   = Just $ PrimType CharPrim
+stringToNonUniquePrim "File"   = Just $ PrimType FilePrim
+stringToNonUniquePrim "System" = Just $ PrimType SystemPrim
+stringToNonUniquePrim "String" = Just $ ListType (PrimType CharPrim)
+stringToNonUniquePrim _        = Nothing
 
-typesList :: [CompTypeAST] -> Sig -> UtilData -> Either String [Types]
-typesList [] _ _                       = Right []
-typesList (comp:comps') sigma utilData =
+typesList :: [CompTypeAST] -> Sig -> Either String [Types]
+typesList [] _                = Right []
+typesList (comp:comps') sigma =
     case types comp sigma of
-        (Left msg)   -> Left msg
+        (Left msg)  -> Left msg
         (Right typ) ->
             case typesList comps' sigma of
                 err@(Left _) -> err
                 (Right typs) -> Right (typ:typs)
+
+typeBonsai :: FilePath -> ProgAST -> Maybe String
+typeBonsai path (ProgAST dt dv _) =
+    case evalTypeDclLazily dt Set.empty of
+        (Left msg)        -> Just (path ++ ":" ++ msg)
+        (Right lazySigma) ->
+            case evalTypeDcl dt Set.empty lazySigma of
+                (Left msg)    -> Just (path ++ ":" ++ msg)
+                (Right sigma) ->
+                    case evalVarDclLazily dv initEnv sigma of
+                        (Left msg)  -> Just (path ++ ":" ++ msg)
+                        (Right env) ->
+                            case evalVarDcl dv env sigma of
+                                (Just msg) -> Just (path ++ ":" ++ msg)
+                                Nothing  -> Nothing
+    where
+        stdin'  = (VarId "stdin" Untyped, UniqType (PrimType FilePrim) True)
+        stdout' = (VarId "stdout" Untyped, UniqType (PrimType FilePrim) True)
+        initEnv = Map.fromList [stdin', stdout']
+
+evalVarDclLazily :: VarDclAST -> Env -> Sig -> Either String Env
+evalVarDclLazily EpsVarDclAST env _ = Right env
+evalVarDclLazily (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma =
+    case getVar env x of
+        (Just _) -> Left (formatErr ("cannot redeclare global variable '" ++ varName x ++ "'") utilData)
+        Nothing  -> evalVarDclLazily dv' (env `except` (x, LazyType expr)) sigma
+
+evalVarDclLazily (VarDclAST (TypedVarAST x s _) _ dv' utilData) env sigma =
+    case getVar env x of
+        (Just _) -> Left (formatErr ("cannot redeclare global variable '" ++ varName x ++ "'") utilData)
+        Nothing  ->
+            case types s sigma of
+                (Left msg)  -> Left msg
+                (Right typ) -> evalVarDclLazily dv' (env `except` (x, typ)) sigma
+
+evalVarDcl :: VarDclAST -> Env -> Sig -> Maybe String -- TODO: look into linear type rules for variable declarations!!
+evalVarDcl EpsVarDclAST _ _ = Nothing
+evalVarDcl (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma =
+    case evalExpr expr env sigma of
+        (Left msg)       -> Just msg
+        (Right (typ, _)) -> evalVarDcl dv' (env `except` (x, typ)) sigma
+
+evalVarDcl (VarDclAST (TypedVarAST x s _) expr dv' utilData) env sigma =
+    case types s sigma of
+        (Left msg)  -> Just msg
+        (Right typ) ->
+            case evalExpr expr env sigma of
+                (Left msg)       -> Just msg
+                (Right (typ', _)) -> 
+                    if typ' == typ
+                        then evalVarDcl dv' (env `except` (x, typ)) sigma
+                        else Just (formatErr ("variable declaration type mismatch, variable '" ++ varName x ++ "' was annotated as '" ++ show typ ++ "' but has type '" ++ show typ' ++ "'") utilData)
+
+
+evalTypeDclLazily :: TypeDclAST -> LazySig -> Either String LazySig
+evalTypeDclLazily EpsTypeDclAST lazySigma = Right lazySigma
+
+evalTypeDclLazily (TypeDclAST typeId _ dt' utilData) lazySigma =
+    if lazySigma `lazyHas` typeId
+        then Left (formatErr ("algebraic type '" ++ typeName typeId ++ "' cannot be redefined") utilData)
+        else evalTypeDclLazily dt' (Set.insert (typeId, []) lazySigma)
+
+evalTypeDclLazily (TypePolyDclAST typeId polys _ dt' utilData) lazySigma =
+    if lazySigma `lazyHas` typeId
+        then Left (formatErr ("algebraic type '" ++ typeName typeId ++ "' cannot be redefined") utilData)
+        else evalTypeDclLazily dt' (Set.insert (typeId, vars) lazySigma)
+    where
+        vars = Data.List.map varName polys
+
+evalTypeDcl :: TypeDclAST -> Sig -> LazySig -> Either String Sig
+evalTypeDcl EpsTypeDclAST sigma lazySigma = Right sigma
+
+evalTypeDcl (TypeDclAST typeId cons dt' utilData) sigma lazySigma =
+    case evalCons cons typeId [] lazySigma of
+        (Left msg)  -> Left msg
+        (Right tcs) -> evalTypeDcl dt' (sigma `Set.union` (Set.fromList tcs)) lazySigma
+
+evalTypeDcl (TypePolyDclAST typeId polys cons dt' utilData) sigma lazySigma =
+    case evalCons cons typeId vars lazySigma of
+        (Left msg)  -> Left msg
+        (Right tcs) -> evalTypeDcl dt' (sigma `Set.union` (Set.fromList tcs)) lazySigma
+    where
+        vars = Data.List.map (\x -> varName x) polys
+
+evalCons :: [ConsAST] -> TypeId -> [String] -> LazySig -> Either String [TermConstructor]
+evalCons [] _ _ _ = Right []
+evalCons (tc:tcs') typeId typeVars lazySigma =
+    case tc of
+        (SingleConsAST name _) ->
+            case evalCons tcs' typeId typeVars lazySigma of
+                err@(Left _) -> err
+                (Right res)  ->
+                    if length typeVars == 0
+                        then Right ((name, AlgeType typeId, AlgeType typeId):res)
+                        else Right ((name, AlgePoly typeId (stringsToPolyTypes typeVars), AlgePoly typeId (stringsToPolyTypes typeVars)):res)
+        (DoubleConsAST name s utilData) ->
+            case buildSignature s typeId typeVars lazySigma of
+                (Left msg)  -> Left msg
+                (Right typ) ->
+                    case evalCons tcs' typeId typeVars lazySigma of
+                        err@(Left _) -> err
+                        (Right res)  ->
+                            if length typeVars == 0
+                                then Right ((name, AlgeType typeId, FuncType typ (AlgeType typeId)):res)
+                                else Right ((name, AlgePoly typeId (stringsToPolyTypes typeVars), FuncType typ (AlgePoly typeId (stringsToPolyTypes typeVars))):res)
 
 -- collection of expression transition rules
 -- implementation of rules (const), (lambda), (ter)
@@ -163,8 +349,8 @@ evalExpr expr env sigma = do
         (ConstExprAST c _)                     -> Right (evalConst c, [])
         (ParenExprAST expr' _)                 -> evalExpr expr' env sigma
         (LambdaExprAST xt expr' _)             -> evalLambda xt expr' env sigma
-        (FunAppExprAST expr1 expr2 _)          -> evalFunApp expr1 expr2 env sigma
-        (TupleExprAST exprs utilData)          -> evalTuple exprs env sigma utilData
+        (FunAppExprAST expr1 expr2 utilData)   -> evalFunApp expr1 expr2 env sigma utilData
+        (TupleExprAST exprs _)                 -> evalTuple exprs env sigma
         (ListExprAST exprs utilData)           -> evalList exprs env sigma utilData
         (CaseExprAST branches utilData)        -> evalCase branches env sigma utilData
         (LetInExprAST xt expr1 expr2 _)        -> evalLetIn xt expr1 expr2 env sigma
@@ -173,13 +359,120 @@ evalExpr expr env sigma = do
                 err@(Left _) -> err 
                 (Right (typ, binds)) -> evalMatch typ branches (applyBindings env binds) sigma utilData
 
+evalFunApp :: ExprAST -> ExprAST -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
+evalFunApp expr1 expr2 env sigma utilData =
+    case evalExpr expr2 env sigma of
+        err@(Left _)         -> err
+        (Right (typ, binds)) ->
+            case evalExpr expr1 env' sigma of
+                err@(Left _)                            -> err
+                (Right (FuncType typ1' typ2', binds'))  ->
+                    if typ == typ1'
+                        then Right (typ2', binds ++ binds')
+                        else case analyzeTypevars typ1' typ Map.empty of
+                            (True, typeBinds) -> Right (applyTypeBindings typ2' typeBinds, binds ++ binds')
+                            (False, _)        -> Left (formatErr ("mismatched parameter types in function application, expected '" ++ show typ1' ++ "' but actual type is '" ++ show typ ++ "'") utilData)
+                (Right (LazyFunc x body env'', binds')) ->
+                    case evalExpr body (applyBindings env'' (binds ++ binds' ++ [(x, typ)])) sigma of
+                        err@(Left _)             -> err
+                        (Right (typ2', binds'')) -> Right (typ2', binds ++ binds' ++ binds'')
+                (Right (wrongType, _)) -> Left (formatErr ("mismatched types in function application, expected a function but actual type is '" ++ show wrongType ++ "'") utilData)
+            where
+                env' = applyBindings env binds
+
+applyTypeBindings :: Types -> Map String Types -> Types
+applyTypeBindings typ@(PrimType _) _ = typ
+
+applyTypeBindings (FuncType typ1 typ2) typeBinds = FuncType (applyTypeBindings typ1 typeBinds) (applyTypeBindings typ2 typeBinds)
+
+applyTypeBindings (TuplType typs) typeBinds = TuplType [applyTypeBindings typ typeBinds | typ <- typs]
+
+applyTypeBindings (ListType typ) typeBinds = ListType (applyTypeBindings typ typeBinds)
+
+applyTypeBindings typ@(AlgeType _) _ = typ
+
+applyTypeBindings (AlgePoly typeId typs) typeBinds = AlgePoly typeId [applyTypeBindings typ typeBinds | typ <- typs]
+
+applyTypeBindings typ@(PolyType var) typeBinds =
+    case Map.lookup var typeBinds of
+        Nothing     -> typ
+        (Just typ') -> typ'
+
+applyTypeBindings (UniqType typ valid) typeBinds = UniqType (applyTypeBindings typ typeBinds) valid
+
+applyTypeBindings _ _ = error "cannot apply type bindings to a lazy type."
+
+analyzeTypevars :: Types -> Types -> Map String Types -> (Bool, Map String Types)
+analyzeTypevars (PrimType prim1) (PrimType prim2) typeBinds = (prim1 == prim2, typeBinds)
+
+analyzeTypevars (FuncType typa1 typb1) (FuncType typa2 typb2) typeBinds =
+    case analyzeTypevars typa1 typa2 typeBinds of
+        (True, typeBinds') -> analyzeTypevars typb1 typb2 typeBinds'
+        res@(False, _)     -> res
+
+analyzeTypevars (TuplType typs1) (TuplType typs2) typeBinds = analyzeTypevarsList typs1 typs2 typeBinds
+
+analyzeTypevars (ListType typ1) (ListType typ2) typeBinds = analyzeTypevars typ1 typ2 typeBinds
+
+analyzeTypevars (AlgeType typeId1) (AlgeType typeId2) typeBinds = (typeId1 == typeId2, typeBinds)
+
+analyzeTypevars (AlgePoly typeId1 typs1) (AlgePoly typeId2 typs2) typeBinds =
+    if typeId1 == typeId2
+        then analyzeTypevarsList typs1 typs2 typeBinds
+        else (False, typeBinds)
+
+analyzeTypevars (PolyType var1) typ2@(PolyType var2) typeBinds =
+    case Map.lookup var1 typeBinds of
+        Nothing  -> (True, Map.insert var1 typ2 typeBinds)
+        (Just _) -> (var1 == var2, typeBinds)
+
+analyzeTypevars (PolyType var) typ2 typeBinds =
+    case Map.lookup var typeBinds of
+        Nothing     -> (True, Map.insert var typ2 typeBinds)
+        (Just typ1) -> analyzeTypevars typ1 typ2 typeBinds
+
+analyzeTypevars (UniqType typ1 _) (UniqType typ2 _) typeBinds = analyzeTypevars typ1 typ2 typeBinds
+
+-- catch all pattern
+analyzeTypevars expected actual typeBinds = (False, typeBinds)
+
+analyzeTypevarsList :: [Types] -> [Types] -> Map String Types -> (Bool, Map String Types) 
+analyzeTypevarsList [] [] typeBinds = (True, typeBinds)
+analyzeTypevarsList [] _ typeBinds  = (False, typeBinds)
+analyzeTypevarsList _ [] typeBinds  = (False, typeBinds)
+analyzeTypevarsList (t1:ts1) (t2:ts2) typeBinds =
+    case analyzeTypevars t1 t2 typeBinds of
+        (True, typeBinds')  -> analyzeTypevarsList ts1 ts2 typeBinds'
+        res@(False, _)      -> res
+
+evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> Either String (Types, [Binding])
+evalLetIn (TypedVarAST x s utilData) expr1 expr2 env sigma =
+    case evalExpr expr1 env sigma of
+        err@(Left _)         -> err
+        (Right (typ, binds)) ->
+            case types s sigma of
+                (Left msg)   -> Left msg
+                (Right typ') ->
+                    if typ == typ'
+                        then evalExpr expr2 env' sigma
+                        else Left (formatErr ("mismatched types in let-in, variable '" ++ varName x ++ "' is annotated as '" ++ show typ' ++ "' but has type '" ++ show typ ++ "'") utilData) 
+                        where
+                            env' = applyBindings env (binds ++ [(x, typ')])
+
+evalLetIn (UntypedVarAST x _) expr1 expr2 env sigma =
+    case evalExpr expr1 env sigma of
+        err@(Left _)         -> err
+        (Right (typ, binds)) -> evalExpr expr2 env' sigma
+            where
+                env' = applyBindings env (binds ++ [(x, typ)])
+
 evalVarExpr :: VarId -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
 evalVarExpr varId env sigma utilData =
     case getVar env varId of
-        Nothing                       -> Left (formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData)
-        (Just typ@(UniqType _ False)) -> Left (formatErr ("unique variable '" ++ varName varId ++ "::" ++ show typ ++ "' cannot be used twice") utilData)
-        (Just (UniqType typ True))    -> Right (typ, [(varId, (UniqType typ False))])
-        (Just (LazyType expr))        ->
+        Nothing                         -> Left (formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData)
+        (Just typ@(UniqType _ False))   -> Left (formatErr ("unique variable '" ++ varName varId ++ "::" ++ show typ ++ "' cannot be used twice") utilData)
+        (Just uniq@(UniqType typ True)) -> Right (uniq, [(varId, (UniqType typ False))])
+        (Just (LazyType expr))          ->
             case evalExpr expr env sigma of
                 err@(Left _)     -> err
                 (Right (typ, _)) -> Right (typ, [(varId, typ)])
@@ -229,7 +522,7 @@ evalConst (OpenReadConstAST _)       = FuncType (UniqType (PrimType SystemPrim) 
 evalConst (OpenWriteConstAST _)      = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True, UniqType (PrimType FilePrim) True]))
 evalConst (CloseConstAST _)          = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True]))
 evalConst (ReadConstAST _)           = FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, PrimType CharPrim, UniqType (PrimType FilePrim) True])
-evalConst (WriteConstAST _)          = FuncType (UniqType (PrimType FilePrim) True) (FuncType (PrimType CharPrim) (TuplType [PrimType BoolPrim, UniqType (PrimType FilePrim) True]))
+evalConst (WriteConstAST _)          = FuncType (PrimType CharPrim) (FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, UniqType (PrimType FilePrim) True]))
 evalConst (DeleteConstAST _)         = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True]))
 evalConst (ShowConstAST _)           = FuncType (PolyType "a0") (ListType (PrimType CharPrim))
 evalConst (ToIntConstAST _)          = FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, PrimType IntPrim])
@@ -238,10 +531,15 @@ evalConst (ToFloatConstAST _)        = FuncType (ListType (PrimType CharPrim)) (
 evalLambda :: TypeVarAST -> ExprAST -> Env -> Sig -> Either String (Types, [Binding])
 evalLambda (TypedVarAST x s _) expr env sigma = 
     case types s sigma of
-        (Left msg) -> msg
-        (Right typ) -> evalExpr expr env' sigma
+        (Left msg)   -> Left msg
+        (Right typ1) ->
+            case evalExpr expr env' sigma of
+                err@(Left _)          -> err
+                (Right (typ2, binds)) -> Right (FuncType typ1 typ2, binds)
             where
-                env' = env `except` (x, typ)
+                env' = env `except` (x, typ1)
+
+evalLambda (UntypedVarAST x _) expr env _ = Right (LazyFunc x expr env, []) 
 
 evalTuple :: [ExprAST] -> Env -> Sig -> Either String (Types, [Binding])
 evalTuple exprs env sigma =
@@ -271,6 +569,7 @@ handleTupleExprs (expr:exprs') binds env sigma =
         env' = applyBindings env binds
 
 evalList :: [ExprAST] -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
+evalList [] _ _ _ = Right (ListType (PolyType "a0"), []) -- TODO!!
 evalList (expr:exprs') env sigma utilData =
     case evalExpr expr env sigma of
         err@(Left _)         -> err
@@ -370,28 +669,44 @@ match (PrimType (FloatPrim)) (ConstPatternAST (FloatConstAST _ _) _) _ = Right [
 match (PrimType (BoolPrim)) (ConstPatternAST (BoolConstAST _ _) _) _ = Right []
 match (PrimType (CharPrim)) (ConstPatternAST (CharConstAST _ _) _) _ = Right []
 
-match (AlgeType typ sigma') (TypePatternAST t utilData) sigma =
-    if sigma `has` t
-        then if sigma' `has` t
-            then Right []
-            else Left (formatErr ("mismatched type '" ++ getTermType sigma t ++ "' expected '" ++ typeName typ ++ "'") utilData)
-        else Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+match expected@(AlgePoly typ typs) (TypePatternAST t utilData) sigma =
+    case getTermConstructor sigma t of
+        Nothing             -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        (Just (_, typ', _)) ->
+            if extractTypeName typ' == typ
+                then Right []
+                else Left (formatErr ("mismatched type '"++ show typ' ++ "' expected '" ++ show expected ++ "'") utilData)
+
+match expected@(AlgeType typ) (TypePatternAST t utilData) sigma =
+    case getTermConstructor sigma t of
+        Nothing             -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        (Just (_, typ', _)) ->
+            if extractTypeName typ' == typ
+                then Right []
+                else Left (formatErr ("mismatched type '"++ show typ' ++ "' expected '" ++ show expected ++ "'") utilData)
 
 match (ListType typ) (DecompPatternAST pat' varId _) sigma =
     case maybeDelta of
         err@(Left _)      -> err
-        (Right bindings) -> Right ((varId, typ):bindings)
+        (Right bindings) -> Right ((varId, ListType typ):bindings)
     where
         maybeDelta = match typ pat' sigma
 
-match expected@(AlgeType typ sigma') pat@(TypeConsPatternAST t pat' utilData) sigma =
-    if sigma `has` t
-        then if sigma' `has` t
-            then case getSignature sigma' t of
-                    Nothing    -> Left (formatErr ("termconstructor '" ++ typeName t ++ "' is not compound") utilData)
-                    (Just sig) -> match sig pat' sigma
-            else Left (formatErr ("mismatched type '" ++ getTermType sigma t ++ "' expected '" ++ typeName typ ++ "'") utilData)
-        else Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+match expected@(AlgePoly typ typs) pat@(TypeConsPatternAST t pat' utilData) sigma =
+    case getTermConstructor sigma t of
+        Nothing                                           -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        (Just (_, AlgePoly typ' typs', (FuncType sig _))) ->
+            let (_, typeBinds) = analyzeTypevarsList typs' typs Map.empty
+                in match (applyTypeBindings sig typeBinds) pat' sigma
+        (Just (_, typ', _))                               -> Left (formatErr ("mismatched type '"++ show typ' ++ "' expected '" ++ show expected ++ "'") utilData)
+
+match expected@(AlgeType typ) pat@(TypeConsPatternAST t pat' utilData) sigma =
+    case getTermConstructor sigma t of
+        Nothing               -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        (Just (_, typ', sig)) ->
+            if extractTypeName typ' == typ
+                then match sig pat' sigma
+                else Left (formatErr ("mismatched type '" ++ show typ' ++ "' expected '" ++ show expected ++ "'") utilData)
 
 match (TuplType typs) (TuplePatternAST ps utilData) sigma = matchMultiple typs ps sigma utilData
 
@@ -409,7 +724,7 @@ matchMultiple :: [Types] -> [PatternAST] -> Sig -> UtilData -> Either String [Bi
 matchMultiple [] [] _ _                        = Right []
 matchMultiple (typ:typs) (p:ps) sigma utilData =
     if (length typs) /= (length ps)
-        then Left (formatErr ("mismatched type and pattern lengths, expected immediates '" ++ ([show typ' | typ' <- (typ:typs)] >>= (++ ", "))  ++ "'") utilData)
+        then Left (formatErr ("mismatched type and pattern lengths, expected immediates '" ++ ([show typ' | typ' <- init (typ:typs)] >>= (++ ", ")) ++ show (last typs)  ++ "'") utilData)
         else case maybeBind of
                 err@(Left _) -> err
                 (Right bind) ->

@@ -20,6 +20,7 @@ module Actions
     , getUtilDataExpr
     , getUtilDataConst
     , getUtilDataPat
+    , handleCompParen
     ) where
 
 import Ast
@@ -126,6 +127,10 @@ getFloatVal _ = error "Token must be associated with a float value."
 getBoolVal :: Token -> Bool
 getBoolVal (Token _ (BoolToken b)) = b
 getBoolVal _ = error "Token must be associated with a boolean value."
+
+handleCompParen :: [CompTypeAST] -> UtilData -> CompTypeAST
+handleCompParen [single] _        = single
+handleCompParen multiple utilData = CompTupleAST multiple utilData
 
 --rule Let_in: 1
 let_in :: [PatternAST] -> ExprAST -> ExprAST -> UtilData -> ExprAST

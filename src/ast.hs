@@ -15,33 +15,40 @@ module Ast
     , ConstAST(..)
     , Types(..)
     , Prim(..)
-    , TermConstructor(..)
+    , TermConstructor
     , initUtilData
-    , AlgebraicType
+    , LazyAlgebraicType
+    , LazySig
     ) where
 
 import Data.Word (Word8)
 import Data.Set as Set
+import Data.Map as Map
 
--- type for sets of algebraic types
-type Sig = Set AlgebraicType
+-- type-environment type
+type Env = Map VarId Types
 
-type AlgebraicType = (TypeId, [TermConstructor])
--- a termconstructor has a name and optionally a signature
-data TermConstructor = ConstConstructor TypeId
-                     | CompConstructor  TypeId Types 
+-- type for sets of termconstructors
+type Sig = Set TermConstructor
+
+type LazySig = Set LazyAlgebraicType 
+
+type LazyAlgebraicType = (TypeId, [String])
+
+-- a termconstructor has a name an associated type and optionally a signature
+type TermConstructor = (TypeId, Types, Types)
 
 data Types = PrimType Prim
            | FuncType Types Types
            | TuplType [Types]
            | ListType Types
-           | AlgeType TypeId Sig
-           | AlgePoly TypeId [Types] Sig
+           | AlgeType TypeId
+           | AlgePoly TypeId [Types]
            | PolyType String
            | UniqType Types Bool
-           | OkayType
            | LazyType ExprAST
            | LazyPair ExprAST Types
+           | LazyFunc VarId ExprAST Env
 
 data Prim = IntPrim
           | FloatPrim
@@ -49,19 +56,28 @@ data Prim = IntPrim
           | CharPrim
           | FilePrim
           | SystemPrim
-          deriving Eq 
+          deriving (Eq, Ord) 
 
 instance Eq Types where
     PrimType p1 == PrimType p2 = p1 == p2
     FuncType ta1 tb1 == FuncType ta2 tb2 = ta1 == ta2 && tb1 == tb2
     TuplType typs1 == TuplType typs2 = typs1 == typs2
     ListType typ1 == ListType typ2 = typ1 == typ2
-    AlgeType typeId1 _ == AlgeType typeId2 _ = typeId1 == typeId2
-    AlgePoly typeId1 _ _ == AlgePoly typeId2 _ _ = typeId1 == typeId2
+    AlgeType typeId1 == AlgeType typeId2 = typeId1 == typeId2
+    AlgePoly typeId1 _ == AlgePoly typeId2 _ = typeId1 == typeId2
     PolyType name1 == PolyType name2 = name1 == name2
     UniqType typ1 valid1 == UniqType typ2 valid2 = typ1 == typ2 && valid1 == valid2
-    OkayType == OkayType = True
     _ == _ = False
+
+instance Ord Types where
+    PrimType p1 `compare` PrimType p2 = p1 `compare` p2
+    FuncType ta1 tb1 `compare` FuncType ta2 tb2 = (ta1 `compare` ta2) `compare` (tb1 `compare` tb2)
+    TuplType typs1 `compare` TuplType typs2 = typs1 `compare` typs2
+    ListType typ1 `compare` ListType typ2 = typ1 `compare` typ2
+    AlgeType typeId1 `compare` AlgeType typeId2 = typeId1 `compare` typeId2
+    AlgePoly typeId1 _ `compare` AlgePoly typeId2 _ = typeId1 `compare` typeId2
+    UniqType typ1 _ `compare` UniqType typ2 _ = typ1 `compare` typ2
+    _ `compare` _ = 1 `compare` 1
 
 instance Show Prim where
     show IntPrim    = "Int"
@@ -72,15 +88,15 @@ instance Show Prim where
     show SystemPrim = "System"
 
 instance Show Types where
-    show (PrimType prim)        = show prim 
-    show (FuncType typ1 typ2)   = "(" ++ show typ1 ++ "->" ++ show typ2 ++ ")"
-    show (TuplType typs')       = "(" ++ ([show typ' | typ' <- typs'] >>= (++ ", ")) ++ ")"
-    show (ListType typ)         = "[" ++ show typ ++ "]"
-    show (AlgeType typeId _)    = typeName typeId
-    show (AlgePoly typeId ps _) = typeName typeId ++ "<" ++ ([show typ' | typ' <- ps] >>= (++ ", ")) ++ ">"
-    show (PolyType name)        = name
-    show (UniqType typ _)       = show typ ++ "*"
-    show _                      = error "cannot convert a lazy type to string" 
+    show (PrimType prim)      = show prim 
+    show (FuncType typ1 typ2) = "(" ++ show typ1 ++ " -> " ++ show typ2 ++ ")"
+    show (TuplType typs')     = "(" ++ ([show typ' | typ' <- init typs'] >>= (++ ", ")) ++ show (last typs') ++ ")"
+    show (ListType typ)       = "[" ++ show typ ++ "]"
+    show (AlgeType typeId)    = typeName typeId
+    show (AlgePoly typeId ps) = typeName typeId ++ "<" ++ ([show typ' | typ' <- init ps] >>= (++ ", ")) ++ show (last ps) ++ ">"
+    show (PolyType name)      = name
+    show (UniqType typ _)     = show typ ++ "*"
+    show _                    = error "cannot convert a lazy type to string" 
 
 type Sort = String
 

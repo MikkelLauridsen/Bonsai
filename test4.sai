@@ -1,0 +1,13 @@
+var writes::(String -> (File* -> (Bool, File*))) = s::String => {
+    f::File* => {
+        match s {
+            | []     -> (true, f)
+            | (c:cs) -> 
+                let (succ, f') = write c f 
+                in (case {
+                    | succ == true -> (writes cs f')
+                    | ?            -> (false, f') 
+                })
+        }
+    }
+}

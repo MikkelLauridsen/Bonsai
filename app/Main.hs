@@ -4,6 +4,7 @@ import System.Environment (getArgs)
 import Parser (parseBonsai)
 import Ast
 import Prettifier
+import Typesystem
 import Semantics
 import System.IO
 
@@ -83,11 +84,14 @@ interactive = do
 
 runInterpret :: FilePath -> Either String ProgAST -> IO ()
 runInterpret _ (Left err) = putStrLn err
-runInterpret path (Right ast) = do 
-    res <- interpret path ast
-    case res of
-        (Left msg) -> putStrLn msg
-        (Right _)  -> putChar '\n'
+runInterpret path (Right ast) =
+    case typeBonsai path ast of
+        (Just msg) -> putStrLn msg
+        Nothing    -> do
+            res <- interpret path ast
+            case res of
+                (Left msg) -> putStrLn msg
+                (Right _)  -> putChar '\n'
 
 -- prompts the user for a line in stdin
 -- and returns the result
