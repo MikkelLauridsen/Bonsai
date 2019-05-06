@@ -154,3 +154,5 @@ instance PrettyShow ConstAST where
     prettyShow (ShowConstAST _) ic = "show"
     prettyShow (ToIntConstAST _) ic = "to_int"
     prettyShow (ToFloatConstAST _) ic = "to_float"
+    prettyShow (IntToCharAST _) ic = "i2c"
+    prettyShow (CharToIntAST _) ic = "c2i"

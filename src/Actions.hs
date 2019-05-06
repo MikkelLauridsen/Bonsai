@@ -80,6 +80,8 @@ getUtilDataConst (DeleteConstAST utilData) = utilData
 getUtilDataConst (ShowConstAST utilData) = utilData
 getUtilDataConst (ToIntConstAST utilData) = utilData
 getUtilDataConst (ToFloatConstAST utilData) = utilData
+getUtilDataConst (IntToCharAST utilData) = utilData
+getUtilDataConst (CharToIntAST utilData) = utilData
 getUtilDataConst (BiLShiftConstAST utilData) = utilData
 getUtilDataConst (BiRShiftConstAST utilData) = utilData
 getUtilDataConst (BiNotConstAST utilData) = utilData
@@ -174,6 +176,8 @@ convert_io_op token@(Token _ (IOToken "delete"))     = DeleteConstAST (getUtilDa
 convert_io_op token@(Token _ (IOToken "show"))       = ShowConstAST (getUtilData token)
 convert_io_op token@(Token _ (IOToken "to_int"))     = ToIntConstAST (getUtilData token)
 convert_io_op token@(Token _ (IOToken "to_float"))   = ToFloatConstAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "i2c"))        = IntToCharAST (getUtilData token)
+convert_io_op token@(Token _ (IOToken "c2i"))        = CharToIntAST (getUtilData token)
 convert_io_op _ = error "undefined IO operation."
 
 handle_string_expr :: Token -> [ExprAST]

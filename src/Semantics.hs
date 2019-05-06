@@ -378,6 +378,8 @@ partiallyApply fun@(ShowConstAST _) value           = apply fun [value]
 partiallyApply fun@(ToIntConstAST _) value          = apply fun [value]
 partiallyApply fun@(ToFloatConstAST _) value        = apply fun [value]
 partiallyApply fun@(BiNotConstAST _) value          = apply fun [value]
+partiallyApply fun@(IntToCharAST _) value           = apply fun [value]
+partiallyApply fun@(CharToIntAST _) value           = apply fun [value]
 partiallyApply fun@(BiLShiftConstAST _) value       = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(BiRShiftConstAST _) value       = return $ PartialValue (\y -> apply fun [value, y])
 partiallyApply fun@(BiAndConstAST _) value          = return $ PartialValue (\y -> apply fun [value, y])
@@ -753,6 +755,13 @@ apply (ToFloatConstAST _) [ListValue cs] =
         (Just f) -> TupleValue [ConstValue (BoolConstAST True initUtilData), ConstValue (FloatConstAST f initUtilData)]
         where
             string = valueListToString cs
+
+apply (IntToCharAST _) [ConstValue (IntConstAST i initUtilData)] = 
+    return $ ConstValue (CharConstAST (fromIntegral i) initUtilData)
+
+apply (CharToIntAST _) [ConstValue (CharConstAST c initUtilData)] = 
+    return $ ConstValue (IntConstAST (fromIntegral c) initUtilData)
+
 
 apply _ _ = error "invalid arguments for apply." -- should be prevented by typesystem
 

@@ -140,6 +140,8 @@ data ConstAST = IntConstAST Int UtilData
               | ShowConstAST UtilData
               | ToIntConstAST UtilData
               | ToFloatConstAST UtilData
+              | IntToCharAST UtilData
+              | CharToIntAST UtilData
               deriving Show
 
 instance Eq ConstAST where

@@ -54,6 +54,8 @@ tokens :-
 <0>            show                                                            { stringTerminalToToken IOToken}
 <0>            to_int                                                          { stringTerminalToToken IOToken}
 <0>            to_float                                                        { stringTerminalToToken IOToken}
+<0>            i2c                                                             { stringTerminalToToken IOToken}
+<0>            c2i                                                             { stringTerminalToToken IOToken}
 <0>            \=\>                                                            { terminalToToken FollowsToken}
 <0>            \-? $digit+                                                     { stringTerminalToToken (IntToken . read)}
 <0>            \-? $digit+\.$digit+                                            { stringTerminalToToken (FloatToken . read)}
