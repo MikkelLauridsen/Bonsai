@@ -13,6 +13,7 @@ import Data.Bits
 import Data.Word (Word8) 
 import Unsafe.Coerce (unsafeCoerce) 
 import Data.Char (chr)
+import Data.ByteString hiding (length)
 
 -- storage type for variabel environments
 type Binding = (VarId, Values)
@@ -685,10 +686,10 @@ apply (ReadConstAST _) [file@(FileValue Nothing _)] = do
     return $ TupleValue [falseValue, emptyCharValue, advanceFile file]
 
 apply (ReadConstAST _) [file@(FileValue (Just handle) _)] = do
-    e <- try (hGetChar handle) :: IO (Either IOException Char)
+    e <- try (hGet handle 1) :: IO (Either IOException ByteString)
     case e of
         (Left e)   -> return $ TupleValue [falseValue, emptyCharValue, f]
-        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST (toWord8 ch) initUtilData), f]
+        (Right ch) -> return $ TupleValue [trueValue, ConstValue (CharConstAST (Data.ByteString.head ch) initUtilData), f]
     where
         f = advanceFile file
 
@@ -696,7 +697,7 @@ apply (WriteConstAST _) [_, file@(FileValue Nothing _)] = do
     return $ TupleValue [falseValue, advanceFile file]
 
 apply (WriteConstAST _) [(ConstValue (CharConstAST w8 _)), file@(FileValue (Just handle) _)] = do
-    e <- try (hPutChar handle (toChar w8)) :: IO (Either IOException ())
+    e <- try (hPut handle (Data.ByteString.singleton w8)) :: IO (Either IOException ())
     case e of
         (Left e)  -> return $ TupleValue [falseValue, f]
         (Right _) -> return $ TupleValue [trueValue, f]

@@ -42,6 +42,7 @@ library
     , containers
     , base >=4.7 && <5
     , directory
+    , bytestring
   default-language: Haskell2010
 
 executable p4-exe
