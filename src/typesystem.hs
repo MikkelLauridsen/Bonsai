@@ -265,7 +265,7 @@ evalVarDclLazily (VarDclAST (TypedVarAST x s _) _ dv' utilData) env sigma =
                 (Left msg)  -> Left msg
                 (Right typ) -> evalVarDclLazily dv' (env `except` (x, typ)) sigma
 
-evalVarDcl :: VarDclAST -> Env -> Sig -> Maybe String -- TODO: look into linear type rules for variable declarations!!
+evalVarDcl :: VarDclAST -> Env -> Sig -> Maybe String
 evalVarDcl EpsVarDclAST _ _ = Nothing
 evalVarDcl (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma =
     case evalExpr expr env sigma of
@@ -277,7 +277,7 @@ evalVarDcl (VarDclAST (TypedVarAST x s _) expr dv' utilData) env sigma =
         (Left msg)  -> Just msg
         (Right typ) ->
             case evalExpr expr env sigma of
-                (Left msg)       -> Just msg
+                (Left msg)        -> Just msg
                 (Right (typ', _)) -> 
                     if typ' == typ
                         then evalVarDcl dv' (env `except` (x, typ)) sigma
@@ -367,11 +367,9 @@ evalFunApp expr1 expr2 env sigma utilData =
             case evalExpr expr1 env' sigma of
                 err@(Left _)                            -> err
                 (Right (FuncType typ1' typ2', binds'))  ->
-                    if typ == typ1'
-                        then Right (typ2', binds ++ binds')
-                        else case analyzeTypevars typ1' typ Map.empty of
-                            (True, typeBinds) -> Right (applyTypeBindings typ2' typeBinds, binds ++ binds')
-                            (False, _)        -> Left (formatErr ("mismatched parameter types in function application, expected '" ++ show typ1' ++ "' but actual type is '" ++ show typ ++ "'") utilData)
+                    case analyzeTypevars typ1' typ Map.empty of
+                        (True, typeBinds) -> Right (applyTypeBindings typ2' typeBinds, binds ++ binds')
+                        (False, _)        -> Left (formatErr ("mismatched parameter types in function application, expected '" ++ show typ1' ++ "' but actual type is '" ++ show typ ++ "'") utilData)
                 (Right (LazyFunc x body env'', binds')) ->
                     case evalExpr body (applyBindings env'' (binds ++ binds' ++ [(x, typ)])) sigma of
                         err@(Left _)             -> err
@@ -421,15 +419,11 @@ analyzeTypevars (AlgePoly typeId1 typs1) (AlgePoly typeId2 typs2) typeBinds =
         then analyzeTypevarsList typs1 typs2 typeBinds
         else (False, typeBinds)
 
-analyzeTypevars (PolyType var1) typ2@(PolyType var2) typeBinds =
-    case Map.lookup var1 typeBinds of
-        Nothing  -> (True, Map.insert var1 typ2 typeBinds)
-        (Just _) -> (var1 == var2, typeBinds)
-
 analyzeTypevars (PolyType var) typ2 typeBinds =
     case Map.lookup var typeBinds of
-        Nothing     -> (True, Map.insert var typ2 typeBinds)
-        (Just typ1) -> analyzeTypevars typ1 typ2 typeBinds
+        Nothing                  -> (True, Map.insert var typ2 typeBinds)
+        (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
+        (Just typ1)              -> analyzeTypevars typ1 typ2 typeBinds
 
 analyzeTypevars (UniqType typ1 _) (UniqType typ2 _) typeBinds = analyzeTypevars typ1 typ2 typeBinds
 
@@ -640,11 +634,25 @@ handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma utilData =
         (Left msg)       -> Left msg
         (Right bindings) ->
             case evalExpr expr (applyBindings env bindings) sigma of
-                err@(Left _) -> err
+                err@(Left _)      -> err
                 (Right (typ3, _)) ->
-                    if typ2 == typ3
+                    if typ2 == typ3 || compatibleAlgebraicTypes typ2 typ3 -- TODO !!!
                         then handleMatchBranches typ1 branches' typ2 env sigma utilData
                         else Left (formatErr ("match branch type mismatch '" ++ show typ3 ++ "' expected '" ++ show typ2 ++ "'") utilData)
+
+compatibleAlgebraicTypes :: Types -> Types -> Bool -- TODO!!!
+compatibleAlgebraicTypes (AlgePoly typeId1 polys1) (AlgePoly typeId2 polys2) =
+    if typeId1 == typeId2
+        then sum [notPolys va vb | va <- polys1, vb <- polys2] == 0
+        else False
+    where
+        notPolys v1 v2 =
+            case v1 of
+                (PolyType _) ->
+                    case v2 of
+                        (PolyType _) -> 0
+                        _            -> 1
+                _            -> 1
 
 -- helper function for evalMatch
 -- returns an updated variable environment

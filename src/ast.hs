@@ -64,7 +64,7 @@ instance Eq Types where
     TuplType typs1 == TuplType typs2 = typs1 == typs2
     ListType typ1 == ListType typ2 = typ1 == typ2
     AlgeType typeId1 == AlgeType typeId2 = typeId1 == typeId2
-    AlgePoly typeId1 _ == AlgePoly typeId2 _ = typeId1 == typeId2
+    AlgePoly typeId1 polys1 == AlgePoly typeId2 polys2 = typeId1 == typeId2 && polys1 == polys2
     PolyType name1 == PolyType name2 = name1 == name2
     UniqType typ1 valid1 == UniqType typ2 valid2 = typ1 == typ2 && valid1 == valid2
     _ == _ = False
