@@ -13,6 +13,58 @@ type Map<k,v> = {
     | Nil
 }
 
+var main::(System* -> Maybe<Values>) = sys::System* => {
+    let env::Map<String, Values> = bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 55.4)
+    in (lookup env "x")
+}
+
+var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
+    key::k => {
+        value::v => {
+            match map {
+                | Nil -> Node (key, value, Nil, Nil)
+                | Node (key', value', map1', map2') -> 
+                case {
+                    | key == key' -> Node (key, value, map1', map2')
+                    | key < key'  -> Node (key', value', (bind map1' key value), map2')
+                    | key > key'  -> Node (key', value', map1', (bind map2' key value))
+                }
+            }
+        } 
+    }
+}
+
+var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
+    key::k => {
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
+            }
+        }
+    }
+}
+
+
+
+
+var mip::String = match 'h' {
+    | 'y' -> ""
+    | '0' -> "xD"
+}
+
+var testos::(Int -> (k -> Maybe<Int>)) = i::Int => {
+    key::k => {
+        case {
+        | i >= 0 -> Just i
+        | i < 0  -> Nothing
+        }
+    }
+}
+
 var yyyy::[Float] = case {
     | 34 < 22    -> []
     | 343 > 32   -> [33.0]
@@ -32,54 +84,3 @@ var uuuu::Maybe<Int> = Just 3
 var hmm::Map<Int, String> = Node (5, "zz", Nil, Node (5, 'z', Nil, Nil))
 
 var uu::[Maybe<Int>] = (yy (Just 5) (yy (Just 6) [Just 5]))
-
-var main::(System* -> Maybe<Values>) = sys::System* => {
-    let env::Map<String, Values> = bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 55.4)
-    in (lookup env "x")
-}
-
-var mip::String = match 'h' {
-    | 'y' -> ""
-    | '0' -> "xD"
-}
-
-var testos::(Int -> (k -> Maybe<Int>)) = i::Int => {
-    key::k => {
-        case {
-        | i >= 0 -> Just i
-        | i < 0  -> Nothing
-        }
-    }
-}
-
-var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = 
-map::Map<k,v> => {
-    key::k => {
-        value::v => {
-            match map {
-                | Nil -> Node (key, value, Nil, Nil)
-                | Node (key', value', map1', map2') -> 
-                case {
-                    | key == key' -> Node (key, value, map1', map2')
-                    | key < key'  -> Node (key', value', (bind map1' key value), map2')
-                    | key > key'  -> Node (key', value', map1', (bind map2' key value))
-                }
-            }
-        } 
-    }
-}
-
-var lookup::(Map<k,v> -> (k -> Maybe<v>)) = 
-map::Map<k,v> => {
-    key::k => {
-        match map {
-            | Nil -> Nothing
-            | Node (key', value', map1', map2') ->
-            case {
-                | key == key' -> Just value'
-                | key < key'  -> lookup map1' key
-                | key > key'  -> lookup map2' key
-            }
-        }
-    }
-}
