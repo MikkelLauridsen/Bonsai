@@ -524,6 +524,8 @@ evalConst (DeleteConstAST _)         = FuncType (UniqType (PrimType SystemPrim) 
 evalConst (ShowConstAST _)           = FuncType (PolyType "a0") (ListType (PrimType CharPrim))
 evalConst (ToIntConstAST _)          = FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, PrimType IntPrim])
 evalConst (ToFloatConstAST _)        = FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, PrimType FloatPrim])
+evalConst (IntToCharAST _)           = FuncType (PrimType IntPrim) (PrimType CharPrim)
+evalConst (CharToIntAST _)           = FuncType (PrimType CharPrim) (PrimType IntPrim)
 
 evalLambda :: TypeVarAST -> ExprAST -> Env -> Sig -> Either String (Types, [Binding])
 evalLambda (TypedVarAST x s _) expr env sigma = 
@@ -614,8 +616,9 @@ handleCaseBranches typ ((pred, expr):branches') env sigma typeBinds utilData =
                     where
                         typ'' = 
                             case typ of
-                                EmptList -> typ'
-                                _        -> typ
+                                EmptList     -> typ'
+                                (AlgeType _) -> typ'
+                                _            -> typ
 
 
 handlePred :: PredAST -> Env -> Sig -> Either String [Binding]
@@ -651,8 +654,9 @@ handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma typeBinds utilDa
                     where
                         typ'' = 
                             case typ2 of
-                                EmptList -> typ3
-                                _        -> typ2
+                                EmptList     -> typ3
+                                (AlgeType _) -> typ3
+                                _            -> typ2
 
 -- helper function for evalMatch
 -- returns an updated variable environment
