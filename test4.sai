@@ -21,14 +21,25 @@ var yy::(Maybe<Int> -> ([Maybe<Int>] -> [Maybe<Int>])) = i::Maybe<Int> => {
 
 var uu::[Maybe<Int>] = (yy (Just 5) (yy (Just 6) [Just 5]))
 
-var main = sys::System* => {
+var main = 
+sys::System* => {
     let env::Map<String, Values> = bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 55.4)
     in (
         lookup env "x"
     )
 }
 
-var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
+var testos::(Int -> (k -> Maybe<Int>)) = i::Int => {
+    key::k => {
+        case {
+        | i >= 0 -> Just i
+        | i < 0  -> Nothing
+        }
+    }
+}
+
+var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = 
+map::Map<k,v> => {
     key::k => {
         value::v => {
             match map {
@@ -44,7 +55,8 @@ var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
     }
 }
 
-var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
+var lookup::(Map<k,v> -> (k -> Maybe<v>)) = 
+map::Map<k,v> => {
     key::k => {
         match map {
             | Nil -> Nothing

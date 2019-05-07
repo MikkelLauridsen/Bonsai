@@ -302,7 +302,7 @@ evalTypeDclLazily (TypePolyDclAST typeId polys _ dt' utilData) lazySigma =
 evalTypeDcl :: TypeDclAST -> Sig -> LazySig -> Either String Sig
 evalTypeDcl EpsTypeDclAST sigma lazySigma = Right sigma
 
-evalTypeDcl (TypeDclAST typeId cons dt' utilData) sigma lazySigma =
+evalTypeDcl (TypeDclAST typeId cons dt' utilData) sigma lazySigma = -- TODO: check conflicts!!
     case evalCons cons typeId [] lazySigma of
         (Left msg)  -> Left msg
         (Right tcs) -> evalTypeDcl dt' (sigma `Set.union` (Set.fromList tcs)) lazySigma
@@ -419,11 +419,13 @@ analyzeTypevars (AlgePoly typeId1 typs1) (AlgePoly typeId2 typs2) typeBinds =
         then analyzeTypevarsList typs1 typs2 typeBinds
         else (False, typeBinds)
 
-analyzeTypevars (PolyType var) typ2 typeBinds =
-    case Map.lookup var typeBinds of
-        Nothing                  -> (True, Map.insert var typ2 typeBinds)
-        (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
-        (Just typ1)              -> analyzeTypevars typ1 typ2 typeBinds
+analyzeTypevars typ1@(PolyType var) typ2 typeBinds =
+    if typ2 == typ1
+        then (True, typeBinds)
+        else case Map.lookup var typeBinds of
+            Nothing                  -> (True, Map.insert var typ2 typeBinds)
+            (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
+            (Just typ1)              -> analyzeTypevars typ1 typ2 typeBinds
 
 analyzeTypevars (UniqType typ1 _) (UniqType typ2 _) typeBinds = analyzeTypevars typ1 typ2 typeBinds
 
@@ -594,20 +596,20 @@ evalCase ((pred1, expr1):branches') env sigma utilData =
         (Right binds) ->
             case evalExpr expr1 (applyBindings env binds) sigma of
                 err@(Left _)     -> err
-                (Right (typ, _)) -> handleCaseBranches typ branches' env sigma utilData
+                (Right (typ, _)) -> handleCaseBranches typ branches' env sigma Map.empty utilData
 
-handleCaseBranches :: Types -> [(PredAST, ExprAST)] -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
-handleCaseBranches typ [] _ _ _ = Right (typ, [])
-handleCaseBranches typ ((pred, expr):branches') env sigma utilData =
+handleCaseBranches :: Types -> [(PredAST, ExprAST)] -> Env -> Sig -> Map String Types -> UtilData -> Either String (Types, [Binding])
+handleCaseBranches typ [] _ _ typeBinds _ = Right (applyTypeBindings typ typeBinds, [])
+handleCaseBranches typ ((pred, expr):branches') env sigma typeBinds utilData =
     case handlePred pred env sigma of
         (Left msg)    -> Left msg
         (Right binds) ->
             case evalExpr expr (applyBindings env binds) sigma of
                 err@(Left _)      -> err
-                (Right (typ', _)) -> 
-                    if typ' == typ
-                        then handleCaseBranches typ branches' env sigma utilData
-                        else Left (formatErr ("case branch type mismatch '" ++ show typ' ++ "' expected '" ++ show typ ++ "'") utilData)           
+                (Right (typ', _)) ->
+                    case analyzeTypevars typ typ' typeBinds of
+                        (True, typeBinds') -> handleCaseBranches typ branches' env sigma typeBinds' utilData
+                        (False, _)        -> Left (formatErr ("case branch type mismatch '" ++ show typ' ++ "' expected '" ++ show typ ++ "'") utilData)                
 
 handlePred :: PredAST -> Env -> Sig -> Either String [Binding]
 handlePred (PredWildAST _) _ _            = Right []
@@ -625,34 +627,20 @@ evalMatch typ1 ((pat1, expr1):branches') env sigma utilData =
         (Right bindings) ->
             case evalExpr expr1 (applyBindings env bindings) sigma of
                 err@(Left _) -> err
-                (Right (typ2, _)) -> handleMatchBranches typ1 branches' typ2 env sigma utilData
+                (Right (typ2, _)) -> handleMatchBranches typ1 branches' typ2 env sigma Map.empty utilData
 
-handleMatchBranches :: Types -> [(PatternAST, ExprAST)] -> Types -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
-handleMatchBranches _ [] typ2 _ _ _ = Right (typ2, [])
-handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma utilData =
+handleMatchBranches :: Types -> [(PatternAST, ExprAST)] -> Types -> Env -> Sig -> Map String Types -> UtilData -> Either String (Types, [Binding])
+handleMatchBranches _ [] typ2 _ _ typeBinds _ = Right (applyTypeBindings typ2 typeBinds, [])
+handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma typeBinds utilData =
     case match typ1 pat sigma of
         (Left msg)       -> Left msg
         (Right bindings) ->
             case evalExpr expr (applyBindings env bindings) sigma of
                 err@(Left _)      -> err
                 (Right (typ3, _)) ->
-                    if typ2 == typ3 || compatibleAlgebraicTypes typ2 typ3 -- TODO !!!
-                        then handleMatchBranches typ1 branches' typ2 env sigma utilData
-                        else Left (formatErr ("match branch type mismatch '" ++ show typ3 ++ "' expected '" ++ show typ2 ++ "'") utilData)
-
-compatibleAlgebraicTypes :: Types -> Types -> Bool -- TODO!!!
-compatibleAlgebraicTypes (AlgePoly typeId1 polys1) (AlgePoly typeId2 polys2) =
-    if typeId1 == typeId2
-        then sum [notPolys va vb | va <- polys1, vb <- polys2] == 0
-        else False
-    where
-        notPolys v1 v2 =
-            case v1 of
-                (PolyType _) ->
-                    case v2 of
-                        (PolyType _) -> 0
-                        _            -> 1
-                _            -> 1
+                    case analyzeTypevars typ2 typ3 typeBinds of
+                        (True, typeBinds') -> handleMatchBranches typ1 branches' typ2 env sigma typeBinds' utilData
+                        (False, _)        -> Left (formatErr ("mismatched types in match expression, expected '" ++ show typ2 ++ "' but actual type is '" ++ show typ3 ++ "'") utilData) 
 
 -- helper function for evalMatch
 -- returns an updated variable environment
