@@ -80,7 +80,7 @@ Comp_type   : type_id                                                       { Co
             | var_id                                                        { CompSimplePolyAST (getVarId $1) (getUtilData $1) }
             | type_id '<' Comp_rep '>'                                      { CompPolyAST (getTypeId $1) $3 (getUtilData $1) }
             | '[' Comp_type ']'                                             { CompListAST $2 (getUtilData $1) }
-            | '(' Comp_rep ')'                                              { CompTupleAST $2 (getUtilData $1) }
+            | '(' Comp_rep ')'                                              { handleCompParen $2 (getUtilData $1) }
             | '(' Comp_type '->' Comp_type ')'                              { CompFuncAST $2 $4 (getUtilData $1) }
                     
 Comp_rep    : Comp_rep ',' Comp_type                                        { $1 ++ [$3] }
@@ -189,7 +189,7 @@ Lit_expr    : Lambda                                                        { $1
             | '(' Tuple_body ')'                                            { handle_paren $2 (getUtilData $1) }
             | '[' List_body ']'                                             { ListExprAST $2 (getUtilData $1) }
                     
-Lambda      : var_id '=>' '{' Expr '}'                                      { LambdaExprAST (getVarId $1) $4 (getUtilData $1) }
+Lambda      : Typed_var '=>' '{' Expr '}'                                   { LambdaExprAST $1 $4 (getUtilData $2) }
                     
 Tuple_body  : Tuple_body ',' Expr                                           { $1 ++ [$3] }
             | Expr                                                          { [$1] }

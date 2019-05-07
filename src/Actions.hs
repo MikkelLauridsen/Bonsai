@@ -19,6 +19,8 @@ module Actions
     , getUtilDataProg
     , getUtilDataExpr
     , getUtilDataConst
+    , getUtilDataPat
+    , handleCompParen
     ) where
 
 import Ast
@@ -49,6 +51,15 @@ getUtilDataExpr (ListExprAST _ utilData)      = utilData
 getUtilDataExpr (MatchExprAST _ _ utilData)   = utilData
 getUtilDataExpr (CaseExprAST _ utilData)      = utilData
 getUtilDataExpr (LetInExprAST _ _ _ utilData) = utilData
+
+getUtilDataPat (ConstPatternAST _ utilData)      = utilData
+getUtilDataPat (VarPatternAST _ utilData)        = utilData
+getUtilDataPat (TypePatternAST _ utilData)       = utilData
+getUtilDataPat (TypeConsPatternAST _ _ utilData) = utilData
+getUtilDataPat (ListPatternAST _ utilData)       = utilData
+getUtilDataPat (TuplePatternAST _ utilData)      = utilData
+getUtilDataPat (DecompPatternAST _ _ utilData)   = utilData
+getUtilDataPat (WildPatternAST utilData)         = utilData
 
 getUtilDataConst :: ConstAST -> UtilData
 getUtilDataConst (IntConstAST _ utilData) = utilData
@@ -118,6 +129,10 @@ getFloatVal _ = error "Token must be associated with a float value."
 getBoolVal :: Token -> Bool
 getBoolVal (Token _ (BoolToken b)) = b
 getBoolVal _ = error "Token must be associated with a boolean value."
+
+handleCompParen :: [CompTypeAST] -> UtilData -> CompTypeAST
+handleCompParen [single] _        = single
+handleCompParen multiple utilData = CompTupleAST multiple utilData
 
 --rule Let_in: 1
 let_in :: [PatternAST] -> ExprAST -> ExprAST -> UtilData -> ExprAST

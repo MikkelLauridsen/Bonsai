@@ -1,14 +1,3 @@
-
-type Test1 = {
-    | One
-    | Two
-}
-
-type Test2 = {
-    | Three 
-    | Four
-}
-
 type Values = {
     | IntValue Int
     | FloatValue Float
@@ -24,24 +13,19 @@ type Map<k,v> = {
     | Nil
 }
 
-var main = sys => {
-    let xd = .+
-        in (writes (show (xd 5 6)) stdout)
+var main::(System* -> (Bool, File*)) = sys::System* => {
+    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54.0))
+    in (
+        let (?, stdout') = writes ((show env) ++ "\n") stdout
+        in (
+            writes (show (lookup env "xyyy")) stdout'
+        )
+    )
 }
 
-#var main = sys => {
-#    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54))
-#    in (
-#        let (?, stdout') = writes ((show env) ++ "\n") stdout
-#        in (
-#            writes (show (lookup env "xyyy")) stdout'
-#        )
-#    )
-#}
-
-var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map => {
-    key => {
-        value => {
+var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
+    key::k => {
+        value::v => {
             match map {
                 | Nil -> Node (key, value, Nil, Nil)
                 | Node (key', value', map1', map2') -> 
@@ -55,8 +39,8 @@ var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map => {
     }
 }
 
-var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map => {
-    key => {
+var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
+    key::k => {
         match map {
             | Nil -> Nothing
             | Node (key', value', map1', map2') ->
@@ -69,8 +53,8 @@ var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map => {
     }
 }
 
-var writes::(String -> (File* -> (Bool, File*))) = s => {
-    f => {
+var writes::(String -> (File* -> (Bool, File*))) = s::String => {
+    f::File* => {
         match s {
             | []     -> (true, f)
             | (c:cs) -> 
@@ -83,7 +67,7 @@ var writes::(String -> (File* -> (Bool, File*))) = s => {
     }
 }
 
-var readLn::(File* -> (Bool, String, File*)) = f => {
+var readLn::(File* -> (Bool, String, File*)) = f::File* => {
     let (succ, c, f') = read f
     in (case {
         | succ == true -> 
@@ -99,16 +83,9 @@ var readLn::(File* -> (Bool, String, File*)) = f => {
     })
 }
 
-#var reverse::(String -> String) = s => {
-#    match s {
-#        | []     -> []
-#        | (c:cs) -> reverse cs ++ [c]
-#    }
-#} 
-
-var prompt = s => {
-    outf => {
-        inf => {
+var prompt::(String -> (File* -> (File* -> (Bool, String, File*, File*)))) = s::String => {
+    outf::File* => {
+        inf::File* => {
             let (succ, outf') = writes s outf
             in (match succ {
                 | true -> 
@@ -122,23 +99,3 @@ var prompt = s => {
         }
     }
 }
-
-#var main = sys => {
-#    let (succ, line, stdout', stdin') = prompt "input int-value: " stdout stdin
-#    in (match succ {
-#        | true -> 
-#        match (to_int line) {
-#            | (false, ?) -> writes "invalid string format.\n" stdout'
-#            | (?, val)   -> writes ("times 2: " ++ (show (2 * val))) stdout' 
-#        }
-#        | ?    -> writes "could not access file.\n" stdout'
-#    })
-#}
-
-#var main::(System* -> (Bool, File*)) = sys => {
-#    let (succ, line, stdin') = readLn stdin 
-#    in (match succ {
-#        | true  -> writes (reverse line) stdout
-#        | false -> writes "unable to access stdin.\n" stdout
-#    })
-#}

@@ -13,10 +13,97 @@ module Ast
     , ExprAST(..)
     , PatternAST(..)
     , ConstAST(..)
+    , Types(..)
+    , Prim(..)
+    , TermConstructor
     , initUtilData
+    , LazyAlgebraicType
+    , LazySig
     ) where
 
-import Data.Word (Word8) 
+import Data.Word (Word8)
+import Data.Set as Set
+import Data.Map as Map
+
+-- type-environment type
+type Env = Map VarId Types
+
+-- type for sets of termconstructors
+type Sig = Set TermConstructor
+
+type LazySig = Set LazyAlgebraicType 
+
+type LazyAlgebraicType = (TypeId, [String])
+
+-- a termconstructor has a name an associated type and optionally a signature
+type TermConstructor = (TypeId, Types, Types)
+
+data Types = PrimType Prim
+           | FuncType Types Types
+           | TuplType [Types]
+           | ListType Types
+           | EmptList
+           | AlgeType TypeId
+           | AlgePoly TypeId [Types]
+           | PolyType String
+           | UniqType Types Bool
+           | LazyType ExprAST
+           | LazyPair ExprAST Types
+           | LazyFunc VarId ExprAST Env
+
+data Prim = IntPrim
+          | FloatPrim
+          | BoolPrim
+          | CharPrim
+          | FilePrim
+          | SystemPrim
+          deriving (Eq, Ord) 
+
+instance Eq Types where
+    PrimType p1 == PrimType p2 = p1 == p2
+    FuncType ta1 tb1 == FuncType ta2 tb2 = ta1 == ta2 && tb1 == tb2
+    TuplType typs1 == TuplType typs2 = typs1 == typs2
+    ListType typ1 == ListType typ2 = typ1 == typ2
+    EmptList == EmptList = True
+    ListType _ == EmptList = True
+    EmptList == ListType _ = True
+    AlgeType typeId1 == AlgePoly typeId2 _ = typeId1 == typeId2
+    AlgePoly typeId1 _ == AlgeType typeId2 = typeId1 == typeId2
+    AlgeType typeId1 == AlgeType typeId2 = typeId1 == typeId2
+    AlgePoly typeId1 polys1 == AlgePoly typeId2 polys2 = typeId1 == typeId2 && polys1 == polys2
+    PolyType name1 == PolyType name2 = name1 == name2
+    UniqType typ1 valid1 == UniqType typ2 valid2 = typ1 == typ2 && valid1 == valid2
+    _ == _ = False
+
+instance Ord Types where
+    PrimType p1 `compare` PrimType p2 = p1 `compare` p2
+    FuncType ta1 tb1 `compare` FuncType ta2 tb2 = (ta1 `compare` ta2) `compare` (tb1 `compare` tb2)
+    TuplType typs1 `compare` TuplType typs2 = typs1 `compare` typs2
+    ListType typ1 `compare` ListType typ2 = typ1 `compare` typ2
+    AlgeType typeId1 `compare` AlgeType typeId2 = typeId1 `compare` typeId2
+    AlgePoly typeId1 _ `compare` AlgePoly typeId2 _ = typeId1 `compare` typeId2
+    UniqType typ1 _ `compare` UniqType typ2 _ = typ1 `compare` typ2
+    _ `compare` _ = 1 `compare` 1
+
+instance Show Prim where
+    show IntPrim    = "Int"
+    show FloatPrim  = "Float"
+    show BoolPrim   = "Bool"
+    show CharPrim   = "Char"
+    show FilePrim   = "File"
+    show SystemPrim = "System"
+
+instance Show Types where
+    show (PrimType prim)      = show prim 
+    show (FuncType typ1 typ2) = "(" ++ show typ1 ++ " -> " ++ show typ2 ++ ")"
+    show (TuplType typs')     = "(" ++ ([show typ' | typ' <- init typs'] >>= (++ ", ")) ++ show (last typs') ++ ")"
+    show (ListType typ)       = "[" ++ show typ ++ "]"
+    show EmptList             = "[]"
+    show (AlgeType typeId)    = typeName typeId
+    show (AlgePoly typeId ps) = typeName typeId ++ "<" ++ ([show typ' | typ' <- init ps] >>= (++ ", ")) ++ show (last ps) ++ ">"
+    show (PolyType name)      = name
+    show (UniqType typ _)     = show typ ++ "*"
+    show _                    = error "cannot convert a lazy type to string" 
 
 type Sort = String
 
@@ -30,8 +117,8 @@ initUtilData :: UtilData
 initUtilData = UtilData Untyped (0, 0, 0) ""
 
 data BonsaiType = Untyped
-                | Typed Sort
-                deriving (Show, Eq, Ord)
+                | Typed Types
+                deriving (Show, Eq)
 
 data TypeId = TypeId { typeName :: String } deriving Show
 data VarId = VarId { 
@@ -86,7 +173,7 @@ data ExprAST = VarExprAST VarId UtilData
              | TypeExprAST TypeId UtilData
              | ConstExprAST ConstAST UtilData
              | ParenExprAST ExprAST UtilData
-             | LambdaExprAST VarId ExprAST UtilData
+             | LambdaExprAST TypeVarAST ExprAST UtilData
              | FunAppExprAST ExprAST ExprAST UtilData
              | TupleExprAST [ExprAST] UtilData
              | ListExprAST [ExprAST] UtilData

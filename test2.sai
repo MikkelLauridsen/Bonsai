@@ -1,87 +1,68 @@
 
-type Maybe = {
-    | None
-    | Some Int
+
+
+
+
+
+type Test1 = {
+    | Test1a Int
+    | Test1b (Test2, Test1)
 }
 
-type Either = {
-    | Right A
-    | Left B
+type Test2 = {
+    | Test2a (Float -> Int)
 }
 
-var test_minus = -323.23 * 32.23 + -3211.1 - -3.2
+type Maybe<a> = {
+    | Nothing
+    | Just a
+}
 
-var test_tuple = (34, 25)
+type Map<k,v> = {
+    | Node (k, v, Map, Map)
+    | Nil
+}
 
-var expr = 43.3 * 32.2 /3.2 + (43.22 - 2.2 * 43.2)
+type Test7<k,v> = {
+    | Nab (k, k, v, v)
+}
 
-var test = "interesting.\nwassupl"
-var testttt = "xD Dx"
-var test_2 = '\n'
+type Wat = {
+    | Nob Int
+    | Nub (Wat, Int)
+}
 
-var boolVal_c = (x && y) || ((32 <= 42) && x) || ((val1 == val2) && y)
-
-var test = "noob"
-
-var max = list::[Int] => {
-    match list {
-    | []     -> None
-    | (x:xs) ->
-    let current = max xs in 
-        (match current {
-        | None -> x
-        | Some ->
-            case {
-            | x > current  -> x
-            | x <= current -> current
-            }
-        | Other -> 
-            match current {
-                | ? -> current
-            }
-        | ? -> [1, 2]
-        })
+var main = sys::(System*) => {
+    match read stdin {
+        | (?, 'y', ?) -> write '1' stdout
+        | (?, x, ?)   -> write tegn stdout
     }
 }
 
-var quick_maff = 4+6*3
+var test3 = Test2a (y::Float => { 10 })
 
-var x = "aaaa\""
+var test4 = Test1b (Test2a (y::Float => { 20 }), Test1a 24)
 
-var xx_x = 32.3 * 3.2
+var test5 = Just 10
 
-var virk_tak = 230
+var test6::Map<[Char], Int> = Node ("woop", 54, Nil, Node ("nip", 5, Nil, Nil))
 
-var xx_y = "heej noobs l hehe xD"
+var test8 = Nab (4, 5, 'c', 'g')
 
-var double = x => {
-    x * 2
-}
+var test9 = Nub ((Nob 5), 6)
 
-var test::((Int, Int, Int) -> Int) = input => {
-    let (x, y, z) = input in (
-        x * y + z
-    )
-}
+var tegn = 'f'
 
-var eval::(ExpressionAST -> Float) = expr => {
-    match expr {
-        | PlusAST   (left, right) -> eval left + eval right
-        | MinusAST  (left, right) -> eval left - eval right
-        | TimesAST  (left, right) -> eval left * eval right
-        | DivideAST (left, right) -> eval left / eval right
-        | UMinusAST operand       -> ~eval operand
-        | ValueAST  value         -> value
+var writes::(String -> (File* -> (Bool, File*))) = s::String => {
+    f::File* => {
+        match s {
+            | []     -> (true, f)
+            | (c:cs) -> 
+                let (succ, f') = write c f 
+                in (case {
+                    | succ == true -> (writes cs f')
+                    | ?            -> (false, f') 
+                })
+        }
     }
 }
-
-var matchtest = x => {
-    match x {
-        | 5 -> 1
-        | 7 -> 9
-        | (x, (y, z), (a, b)) -> x + y + z
-        | ? -> 10
-    }
-}
-
-var main = (system) => { matchtest (1, (2, 3)) }
