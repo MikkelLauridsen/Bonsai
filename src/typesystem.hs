@@ -252,10 +252,7 @@ typeBonsai path (ProgAST dt dv _) =
 
 evalVarDclLazily :: VarDclAST -> Env -> Sig -> Either String Env
 evalVarDclLazily EpsVarDclAST env _ = Right env
-evalVarDclLazily (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma =
-    case getVar env x of
-        (Just _) -> Left (formatErr ("cannot redeclare global variable '" ++ varName x ++ "'") utilData)
-        Nothing  -> evalVarDclLazily dv' (env `except` (x, LazyType expr)) sigma
+evalVarDclLazily (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma = error "not yet implemented."
 
 evalVarDclLazily (VarDclAST (TypedVarAST x s _) _ dv' utilData) env sigma =
     case getVar env x of
@@ -267,21 +264,21 @@ evalVarDclLazily (VarDclAST (TypedVarAST x s _) _ dv' utilData) env sigma =
 
 evalVarDcl :: VarDclAST -> Env -> Sig -> Maybe String
 evalVarDcl EpsVarDclAST _ _ = Nothing
-evalVarDcl (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma =
-    case evalExpr expr env sigma of
-        (Left msg)       -> Just msg
-        (Right (typ, _)) -> evalVarDcl dv' (env `except` (x, typ)) sigma
+evalVarDcl (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma = error "not yet implemented."
 
 evalVarDcl (VarDclAST (TypedVarAST x s _) expr dv' utilData) env sigma =
-    case types s sigma of
-        (Left msg)  -> Just msg
-        (Right typ) ->
-            case evalExpr expr env sigma of
-                (Left msg)        -> Just msg
-                (Right (typ', _)) -> 
-                    if typ' == typ
-                        then evalVarDcl dv' (env `except` (x, typ)) sigma
-                        else Just (formatErr ("variable declaration type mismatch, variable '" ++ varName x ++ "' was annotated as '" ++ show typ ++ "' but has type '" ++ show typ' ++ "'") utilData)
+    case evalExpr expr env sigma of
+        (Left msg)        -> Just msg
+        (Right (typ', _)) -> 
+            if typ' == typ
+                then evalVarDcl dv' env sigma
+                else Just (formatErr ("variable declaration type mismatch, variable '" ++ varName x ++ "' was annotated as '" ++ show typ ++ "' but has type '" ++ show typ' ++ "'") utilData)
+    where
+        typ = 
+            case getVar env x of
+                Nothing    -> error "annotated variable has no type." -- should not happen
+                (Just typ) -> typ
+
 
 
 evalTypeDclLazily :: TypeDclAST -> LazySig -> Either String LazySig
@@ -336,28 +333,29 @@ evalCons (tc:tcs') typeId typeVars lazySigma =
                                 then Right ((name, AlgeType typeId, FuncType typ (AlgeType typeId)):res)
                                 else Right ((name, AlgePoly typeId (stringsToPolyTypes typeVars), FuncType typ (AlgePoly typeId (stringsToPolyTypes typeVars))):res)
 
--- collection of expression transition rules
+-- collection of expression type rules
 -- implementation of rules (const), (lambda), (ter)
 -- returns an error message if:
---  1. any of the transition rule implementations returns an error message
--- otherwise, returns a Bonsai value and the updated global variable environment
+--  1. any of the type rule implementations return an error message
+-- otherwise, returns a type and a list of linear-type bindings
 evalExpr :: ExprAST -> Env -> Sig -> Either String (Types, [Binding])
-evalExpr expr env sigma = do
-    case expr of
-        (VarExprAST varId utilData)            -> evalVarExpr varId env sigma utilData
-        (TypeExprAST typeId utilData)          -> evalTer typeId env sigma utilData
-        (ConstExprAST c _)                     -> Right (evalConst c, [])
-        (ParenExprAST expr' _)                 -> evalExpr expr' env sigma
-        (LambdaExprAST xt expr' _)             -> evalLambda xt expr' env sigma
-        (FunAppExprAST expr1 expr2 utilData)   -> evalFunApp expr1 expr2 env sigma utilData
-        (TupleExprAST exprs _)                 -> evalTuple exprs env sigma
-        (ListExprAST exprs utilData)           -> evalList exprs env sigma utilData
-        (CaseExprAST branches utilData)        -> evalCase branches env sigma utilData
-        (LetInExprAST xt expr1 expr2 _)        -> evalLetIn xt expr1 expr2 env sigma
-        (MatchExprAST expr' branches utilData) ->
-            case evalExpr expr' env sigma of
-                err@(Left _) -> err 
-                (Right (typ, binds)) -> evalMatch typ branches (applyBindings env binds) sigma utilData
+evalExpr (VarExprAST varId utilData) env sigma   = evalVarExpr varId env sigma utilData
+evalExpr (TypeExprAST typeId utilData) env sigma = evalTer typeId env sigma utilData
+
+evalExpr (ConstExprAST c utilData) env sigma = Right (evalConst c, [])
+
+evalExpr (ParenExprAST expr' _) env sigma               = evalExpr expr' env sigma
+evalExpr (LambdaExprAST xt expr' _) env sigma           = evalLambda xt expr' env sigma
+evalExpr (FunAppExprAST expr1 expr2 utilData) env sigma = evalFunApp expr1 expr2 env sigma utilData
+evalExpr (TupleExprAST exprs _) env sigma               = evalTuple exprs env sigma
+evalExpr (ListExprAST exprs utilData) env sigma         = evalList exprs env sigma utilData
+evalExpr (CaseExprAST branches utilData) env sigma      = evalCase branches env sigma utilData
+evalExpr (LetInExprAST xt expr1 expr2 _) env sigma      = evalLetIn xt expr1 expr2 env sigma
+
+evalExpr (MatchExprAST expr' branches utilData) env sigma =
+    case evalExpr expr' env sigma of
+        err@(Left _)         -> err 
+        (Right (typ, binds)) -> evalMatch typ branches (applyBindings env binds) sigma utilData
 
 evalFunApp :: ExprAST -> ExprAST -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
 evalFunApp expr1 expr2 env sigma utilData =
@@ -379,16 +377,12 @@ evalFunApp expr1 expr2 env sigma utilData =
                 env' = applyBindings env binds
 
 applyTypeBindings :: Types -> Map String Types -> Types
-applyTypeBindings typ@(PrimType _) _ = typ
-
-applyTypeBindings (FuncType typ1 typ2) typeBinds = FuncType (applyTypeBindings typ1 typeBinds) (applyTypeBindings typ2 typeBinds)
-
-applyTypeBindings (TuplType typs) typeBinds = TuplType [applyTypeBindings typ typeBinds | typ <- typs]
-
-applyTypeBindings (ListType typ) typeBinds = ListType (applyTypeBindings typ typeBinds)
-
-applyTypeBindings typ@(AlgeType _) _ = typ
-
+applyTypeBindings typ@(PrimType _) _               = typ
+applyTypeBindings (FuncType typ1 typ2) typeBinds   = FuncType (applyTypeBindings typ1 typeBinds) (applyTypeBindings typ2 typeBinds)
+applyTypeBindings (TuplType typs) typeBinds        = TuplType [applyTypeBindings typ typeBinds | typ <- typs]
+applyTypeBindings (ListType typ) typeBinds         = ListType (applyTypeBindings typ typeBinds)
+applyTypeBindings EmptList _                       = EmptList 
+applyTypeBindings typ@(AlgeType _) _               = typ
 applyTypeBindings (AlgePoly typeId typs) typeBinds = AlgePoly typeId [applyTypeBindings typ typeBinds | typ <- typs]
 
 applyTypeBindings typ@(PolyType var) typeBinds =
@@ -397,8 +391,7 @@ applyTypeBindings typ@(PolyType var) typeBinds =
         (Just typ') -> typ'
 
 applyTypeBindings (UniqType typ valid) typeBinds = UniqType (applyTypeBindings typ typeBinds) valid
-
-applyTypeBindings _ _ = error "cannot apply type bindings to a lazy type."
+applyTypeBindings _ _                            = error "cannot apply type bindings to a lazy type."
 
 analyzeTypevars :: Types -> Types -> Map String Types -> (Bool, Map String Types)
 analyzeTypevars (PrimType prim1) (PrimType prim2) typeBinds = (prim1 == prim2, typeBinds)
@@ -408,16 +401,20 @@ analyzeTypevars (FuncType typa1 typb1) (FuncType typa2 typb2) typeBinds =
         (True, typeBinds') -> analyzeTypevars typb1 typb2 typeBinds'
         res@(False, _)     -> res
 
-analyzeTypevars (TuplType typs1) (TuplType typs2) typeBinds = analyzeTypevarsList typs1 typs2 typeBinds
-
-analyzeTypevars (ListType typ1) (ListType typ2) typeBinds = analyzeTypevars typ1 typ2 typeBinds
-
+analyzeTypevars (TuplType typs1) (TuplType typs2) typeBinds     = analyzeTypevarsList typs1 typs2 typeBinds
+analyzeTypevars (ListType typ1) (ListType typ2) typeBinds       = analyzeTypevars typ1 typ2 typeBinds
+analyzeTypevars EmptList EmptList typeBinds                     = (True, typeBinds)
+analyzeTypevars EmptList (ListType _) typeBinds                 = (True, typeBinds)
+analyzeTypevars (ListType _) EmptList typeBinds                 = (True, typeBinds)
 analyzeTypevars (AlgeType typeId1) (AlgeType typeId2) typeBinds = (typeId1 == typeId2, typeBinds)
 
 analyzeTypevars (AlgePoly typeId1 typs1) (AlgePoly typeId2 typs2) typeBinds =
     if typeId1 == typeId2
         then analyzeTypevarsList typs1 typs2 typeBinds
         else (False, typeBinds)
+
+analyzeTypevars (AlgePoly typeId1 _) (AlgeType typeId2) typeBinds = (typeId1 == typeId2, typeBinds)
+analyzeTypevars (AlgeType typeId1) (AlgePoly typeId2 _) typeBinds = (typeId1 == typeId2, typeBinds)
 
 analyzeTypevars typ1@(PolyType var) typ2 typeBinds =
     if typ2 == typ1
@@ -483,9 +480,13 @@ evalVarExpr varId env sigma utilData =
 
 evalTer :: TypeId -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
 evalTer t env sigma utilData =
-    case getSignature sigma t of
-        Nothing    -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
-        (Just typ) -> Right (typ, [])
+    case getTermConstructor sigma t of
+        Nothing -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        (Just (_, mem@(AlgePoly name _), sig)) ->
+            if mem == sig
+                then Right (AlgeType name, [])
+                else Right (sig, [])
+        (Just (_, mem, sig)) -> Right (sig, [])
 
 evalConst :: ConstAST -> Types
 evalConst (IntConstAST _ _)          = PrimType IntPrim
@@ -565,7 +566,7 @@ handleTupleExprs (expr:exprs') binds env sigma =
         env' = applyBindings env binds
 
 evalList :: [ExprAST] -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
-evalList [] _ _ _ = Right (ListType (PolyType "a0"), []) -- TODO!!
+evalList [] _ _ _ = Right (EmptList, [])
 evalList (expr:exprs') env sigma utilData =
     case evalExpr expr env sigma of
         err@(Left _)         -> err
@@ -608,8 +609,14 @@ handleCaseBranches typ ((pred, expr):branches') env sigma typeBinds utilData =
                 err@(Left _)      -> err
                 (Right (typ', _)) ->
                     case analyzeTypevars typ typ' typeBinds of
-                        (True, typeBinds') -> handleCaseBranches typ branches' env sigma typeBinds' utilData
-                        (False, _)        -> Left (formatErr ("case branch type mismatch '" ++ show typ' ++ "' expected '" ++ show typ ++ "'") utilData)                
+                        (True, typeBinds') -> handleCaseBranches typ'' branches' env sigma typeBinds' utilData
+                        (False, _)        -> Left (formatErr ("case branch type mismatch '" ++ show typ' ++ "' expected '" ++ show typ ++ "'") utilData)
+                    where
+                        typ'' = 
+                            case typ of
+                                EmptList -> typ'
+                                _        -> typ
+
 
 handlePred :: PredAST -> Env -> Sig -> Either String [Binding]
 handlePred (PredWildAST _) _ _            = Right []
@@ -639,8 +646,13 @@ handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma typeBinds utilDa
                 err@(Left _)      -> err
                 (Right (typ3, _)) ->
                     case analyzeTypevars typ2 typ3 typeBinds of
-                        (True, typeBinds') -> handleMatchBranches typ1 branches' typ2 env sigma typeBinds' utilData
-                        (False, _)        -> Left (formatErr ("mismatched types in match expression, expected '" ++ show typ2 ++ "' but actual type is '" ++ show typ3 ++ "'") utilData) 
+                        (True, typeBinds') -> handleMatchBranches typ1 branches' typ'' env sigma typeBinds' utilData
+                        (False, _)        -> Left (formatErr ("mismatched types in match expression, expected '" ++ show typ2 ++ "' but actual type is '" ++ show typ3 ++ "'") utilData)
+                    where
+                        typ'' = 
+                            case typ2 of
+                                EmptList -> typ3
+                                _        -> typ2
 
 -- helper function for evalMatch
 -- returns an updated variable environment

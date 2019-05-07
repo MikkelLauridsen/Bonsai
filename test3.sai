@@ -13,7 +13,7 @@ type Map<k,v> = {
     | Nil
 }
 
-var main = sys::System* => {
+var main::(System* -> (Bool, File*)) = sys::System* => {
     let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54.0))
     in (
         let (?, stdout') = writes ((show env) ++ "\n") stdout
@@ -83,7 +83,7 @@ var readLn::(File* -> (Bool, String, File*)) = f::File* => {
     })
 }
 
-var prompt = s::String => {
+var prompt::(String -> (File* -> (File* -> (Bool, String, File*, File*)))) = s::String => {
     outf::File* => {
         inf::File* => {
             let (succ, outf') = writes s outf

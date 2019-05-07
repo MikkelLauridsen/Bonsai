@@ -42,6 +42,7 @@ data Types = PrimType Prim
            | FuncType Types Types
            | TuplType [Types]
            | ListType Types
+           | EmptList
            | AlgeType TypeId
            | AlgePoly TypeId [Types]
            | PolyType String
@@ -63,6 +64,11 @@ instance Eq Types where
     FuncType ta1 tb1 == FuncType ta2 tb2 = ta1 == ta2 && tb1 == tb2
     TuplType typs1 == TuplType typs2 = typs1 == typs2
     ListType typ1 == ListType typ2 = typ1 == typ2
+    EmptList == EmptList = True
+    ListType _ == EmptList = True
+    EmptList == ListType _ = True
+    AlgeType typeId1 == AlgePoly typeId2 _ = typeId1 == typeId2
+    AlgePoly typeId1 _ == AlgeType typeId2 = typeId1 == typeId2
     AlgeType typeId1 == AlgeType typeId2 = typeId1 == typeId2
     AlgePoly typeId1 polys1 == AlgePoly typeId2 polys2 = typeId1 == typeId2 && polys1 == polys2
     PolyType name1 == PolyType name2 = name1 == name2
@@ -92,6 +98,7 @@ instance Show Types where
     show (FuncType typ1 typ2) = "(" ++ show typ1 ++ " -> " ++ show typ2 ++ ")"
     show (TuplType typs')     = "(" ++ ([show typ' | typ' <- init typs'] >>= (++ ", ")) ++ show (last typs') ++ ")"
     show (ListType typ)       = "[" ++ show typ ++ "]"
+    show EmptList             = "[]"
     show (AlgeType typeId)    = typeName typeId
     show (AlgePoly typeId ps) = typeName typeId ++ "<" ++ ([show typ' | typ' <- init ps] >>= (++ ", ")) ++ show (last ps) ++ ">"
     show (PolyType name)      = name
