@@ -714,11 +714,12 @@ match expected@(AlgePoly typ typs) pat@(TypeConsPatternAST t pat' utilData) sigm
 
 match expected@(AlgeType typ) pat@(TypeConsPatternAST t pat' utilData) sigma =
     case getTermConstructor sigma t of
-        Nothing               -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
-        (Just (_, typ', sig)) ->
+        Nothing                            -> Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        (Just (_, typ', (FuncType sig _))) ->
             if extractTypeName typ' == typ
                 then match sig pat' sigma
                 else Left (formatErr ("mismatched type '" ++ show typ' ++ "' expected '" ++ show expected ++ "'") utilData)
+        (Just (_, typ', _))                -> Left (formatErr ("mismatched type '"++ show typ' ++ "' expected '" ++ show expected ++ "'") utilData)
 
 match (TuplType typs) (TuplePatternAST ps utilData) sigma = matchMultiple typs ps sigma utilData
 
