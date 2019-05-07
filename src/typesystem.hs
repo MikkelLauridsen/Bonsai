@@ -266,7 +266,7 @@ evalVarDcl :: VarDclAST -> Env -> Sig -> Maybe String
 evalVarDcl EpsVarDclAST _ _ = Nothing
 evalVarDcl (VarDclAST (UntypedVarAST x _) expr dv' utilData) env sigma = error "not yet implemented."
 
-evalVarDcl (VarDclAST (TypedVarAST x s _) expr dv' utilData) env sigma =
+evalVarDcl (VarDclAST (TypedVarAST x _ _) expr dv' utilData) env sigma =
     case evalExpr expr env sigma of
         (Left msg)        -> Just msg
         (Right (typ', _)) -> 
@@ -277,7 +277,7 @@ evalVarDcl (VarDclAST (TypedVarAST x s _) expr dv' utilData) env sigma =
         typ = 
             case getVar env x of
                 Nothing    -> error "annotated variable has no type." -- should not happen
-                (Just typ) -> typ
+                (Just typ'') -> typ''
 
 
 
@@ -309,7 +309,7 @@ evalTypeDcl (TypePolyDclAST typeId polys cons dt' utilData) sigma lazySigma =
         (Left msg)  -> Left msg
         (Right tcs) -> evalTypeDcl dt' (sigma `Set.union` (Set.fromList tcs)) lazySigma
     where
-        vars = Data.List.map (\x -> varName x) polys
+        vars = Data.List.map varName polys
 
 evalCons :: [ConsAST] -> TypeId -> [String] -> LazySig -> Either String [TermConstructor]
 evalCons [] _ _ _ = Right []
@@ -339,11 +339,9 @@ evalCons (tc:tcs') typeId typeVars lazySigma =
 --  1. any of the type rule implementations return an error message
 -- otherwise, returns a type and a list of linear-type bindings
 evalExpr :: ExprAST -> Env -> Sig -> Either String (Types, [Binding])
-evalExpr (VarExprAST varId utilData) env sigma   = evalVarExpr varId env sigma utilData
-evalExpr (TypeExprAST typeId utilData) env sigma = evalTer typeId env sigma utilData
-
-evalExpr (ConstExprAST c utilData) env sigma = Right (evalConst c, [])
-
+evalExpr (VarExprAST varId utilData) env sigma          = evalVarExpr varId env sigma utilData
+evalExpr (TypeExprAST typeId utilData) env sigma        = evalTer typeId env sigma utilData
+evalExpr (ConstExprAST c _) _ _                         = Right (evalConst c, [])
 evalExpr (ParenExprAST expr' _) env sigma               = evalExpr expr' env sigma
 evalExpr (LambdaExprAST xt expr' _) env sigma           = evalLambda xt expr' env sigma
 evalExpr (FunAppExprAST expr1 expr2 utilData) env sigma = evalFunApp expr1 expr2 env sigma utilData
@@ -351,7 +349,6 @@ evalExpr (TupleExprAST exprs _) env sigma               = evalTuple exprs env si
 evalExpr (ListExprAST exprs utilData) env sigma         = evalList exprs env sigma utilData
 evalExpr (CaseExprAST branches utilData) env sigma      = evalCase branches env sigma utilData
 evalExpr (LetInExprAST xt expr1 expr2 _) env sigma      = evalLetIn xt expr1 expr2 env sigma
-
 evalExpr (MatchExprAST expr' branches utilData) env sigma =
     case evalExpr expr' env sigma of
         err@(Left _)         -> err 
@@ -422,12 +419,12 @@ analyzeTypevars typ1@(PolyType var) typ2 typeBinds =
         else case Map.lookup var typeBinds of
             Nothing                  -> (True, Map.insert var typ2 typeBinds)
             (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
-            (Just typ1)              -> analyzeTypevars typ1 typ2 typeBinds
+            (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
 
 analyzeTypevars (UniqType typ1 _) (UniqType typ2 _) typeBinds = analyzeTypevars typ1 typ2 typeBinds
 
 -- catch all pattern
-analyzeTypevars expected actual typeBinds = (False, typeBinds)
+analyzeTypevars _ _ typeBinds = (False, typeBinds)
 
 analyzeTypevarsList :: [Types] -> [Types] -> Map String Types -> (Bool, Map String Types) 
 analyzeTypevarsList [] [] typeBinds = (True, typeBinds)
@@ -488,7 +485,7 @@ evalTer t env sigma utilData =
                 else Right (sig, [])
         (Just (_, mem, sig)) -> Right (sig, [])
 
-evalConst :: ConstAST -> Types
+evalConst :: ConstAST -> Types -- TODO: typeclasses !!
 evalConst (IntConstAST _ _)          = PrimType IntPrim
 evalConst (BoolConstAST _ _)         = PrimType BoolPrim
 evalConst (FloatConstAST _ _)        = PrimType FloatPrim
@@ -547,6 +544,9 @@ evalTuple exprs env sigma =
         (Right (body, binds)) -> Right (TuplType body, binds) 
 
 handleTupleExprs :: [ExprAST] -> [Binding] -> Env -> Sig -> Either String ([Types], [Binding])
+handleTupleExprs [] _ _ _  = error "Unit tuple is not supported." -- this should not happen!
+handleTupleExprs [_] _ _ _ = error "1-tuples are not supported."  -- this should not happen!
+
 handleTupleExprs [expr1, expr2] binds env sigma =
     case evalExpr expr1 env' sigma of
         (Left msg)             -> Left msg
@@ -593,17 +593,17 @@ handleListExprs typ (expr:exprs') binds env sigma utilData =
 
 evalCase :: [(PredAST, ExprAST)] -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
 evalCase [] _ _ utilData = Left (formatErr ("cannot inference type of a case expression of zero branches") utilData)
-evalCase ((pred1, expr1):branches') env sigma utilData =
+evalCase ((pred1, expr1):branches') env sigma _ =
     case handlePred pred1 env sigma of
         (Left msg)    -> Left msg
         (Right binds) ->
             case evalExpr expr1 (applyBindings env binds) sigma of
                 err@(Left _)     -> err
-                (Right (typ, _)) -> handleCaseBranches typ branches' env sigma Map.empty utilData
+                (Right (typ, _)) -> handleCaseBranches typ branches' env sigma Map.empty
 
-handleCaseBranches :: Types -> [(PredAST, ExprAST)] -> Env -> Sig -> Map String Types -> UtilData -> Either String (Types, [Binding])
-handleCaseBranches typ [] _ _ typeBinds _ = Right (applyTypeBindings typ typeBinds, [])
-handleCaseBranches typ ((pred, expr):branches') env sigma typeBinds utilData =
+handleCaseBranches :: Types -> [(PredAST, ExprAST)] -> Env -> Sig -> Map String Types -> Either String (Types, [Binding])
+handleCaseBranches typ [] _ _ typeBinds = Right (applyTypeBindings typ typeBinds, [])
+handleCaseBranches typ ((pred, expr):branches') env sigma typeBinds =
     case handlePred pred env sigma of
         (Left msg)    -> Left msg
         (Right binds) ->
@@ -611,9 +611,10 @@ handleCaseBranches typ ((pred, expr):branches') env sigma typeBinds utilData =
                 err@(Left _)      -> err
                 (Right (typ', _)) ->
                     case analyzeTypevars typ typ' typeBinds of
-                        (True, typeBinds') -> handleCaseBranches typ'' branches' env sigma typeBinds' utilData
+                        (True, typeBinds') -> handleCaseBranches typ'' branches' env sigma typeBinds'
                         (False, _)        -> Left (formatErr ("case branch type mismatch '" ++ show typ' ++ "' expected '" ++ show typ ++ "'") utilData)
                     where
+                        utilData = getUtilDataExpr expr
                         typ'' = 
                             case typ of
                                 EmptList     -> typ'
@@ -631,17 +632,17 @@ handlePred (PredExprAST expr utilData) env sigma =
 
 evalMatch :: Types -> [(PatternAST, ExprAST)] -> Env -> Sig -> UtilData -> Either String (Types, [Binding])
 evalMatch _ [] _ _ utilData = Left (formatErr ("cannot inference type of a match expression of zero branches") utilData)
-evalMatch typ1 ((pat1, expr1):branches') env sigma utilData =
+evalMatch typ1 ((pat1, expr1):branches') env sigma _ =
     case match typ1 pat1 sigma of
         (Left msg)       -> Left msg
         (Right bindings) ->
             case evalExpr expr1 (applyBindings env bindings) sigma of
                 err@(Left _) -> err
-                (Right (typ2, _)) -> handleMatchBranches typ1 branches' typ2 env sigma Map.empty utilData
+                (Right (typ2, _)) -> handleMatchBranches typ1 branches' typ2 env sigma Map.empty
 
-handleMatchBranches :: Types -> [(PatternAST, ExprAST)] -> Types -> Env -> Sig -> Map String Types -> UtilData -> Either String (Types, [Binding])
-handleMatchBranches _ [] typ2 _ _ typeBinds _ = Right (applyTypeBindings typ2 typeBinds, [])
-handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma typeBinds utilData =
+handleMatchBranches :: Types -> [(PatternAST, ExprAST)] -> Types -> Env -> Sig -> Map String Types -> Either String (Types, [Binding])
+handleMatchBranches _ [] typ2 _ _ typeBinds = Right (applyTypeBindings typ2 typeBinds, [])
+handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma typeBinds =
     case match typ1 pat sigma of
         (Left msg)       -> Left msg
         (Right bindings) ->
@@ -649,9 +650,10 @@ handleMatchBranches typ1 ((pat, expr):branches') typ2 env sigma typeBinds utilDa
                 err@(Left _)      -> err
                 (Right (typ3, _)) ->
                     case analyzeTypevars typ2 typ3 typeBinds of
-                        (True, typeBinds') -> handleMatchBranches typ1 branches' typ'' env sigma typeBinds' utilData
+                        (True, typeBinds') -> handleMatchBranches typ1 branches' typ'' env sigma typeBinds'
                         (False, _)        -> Left (formatErr ("mismatched types in match expression, expected '" ++ show typ2 ++ "' but actual type is '" ++ show typ3 ++ "'") utilData)
                     where
+                        utilData = getUtilDataExpr expr
                         typ'' = 
                             case typ2 of
                                 EmptList     -> typ3

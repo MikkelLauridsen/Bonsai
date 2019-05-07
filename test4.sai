@@ -25,18 +25,17 @@ var yy::(Maybe<Int> -> ([Maybe<Int>] -> [Maybe<Int>])) = i::Maybe<Int> => {
     }
  }
 
-var tt::[Int] = (o::[Int] => { p::[Int] => { p ++ o } }) [4, 7] [4]
+var tt::[Int] = (o::[Int] => { p::[Int] => { p ++ o } }) [] []
 
 var uuuu::Maybe<Int> = Just 3
 
+var hmm::Map<Int, String> = Node (5, "zz", Nil, Node (5, 'z', Nil, Nil))
+
 var uu::[Maybe<Int>] = (yy (Just 5) (yy (Just 6) [Just 5]))
 
-var main::(System* -> Maybe<Values>) = 
-sys::System* => {
+var main::(System* -> Maybe<Values>) = sys::System* => {
     let env::Map<String, Values> = bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 55.4)
-    in (
-        lookup env "x"
-    )
+    in (lookup env "x")
 }
 
 var mip::String = match 'h' {
@@ -48,7 +47,7 @@ var testos::(Int -> (k -> Maybe<Int>)) = i::Int => {
     key::k => {
         case {
         | i >= 0 -> Just i
-        | i < 0  -> Nothing # TODO!! this should be accepted
+        | i < 0  -> Nothing
         }
     }
 }

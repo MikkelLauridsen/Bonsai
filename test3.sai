@@ -27,7 +27,7 @@ var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
     key::k => {
         value::v => {
             match map {
-                | Nil -> Node (key, value, Nil, Node (43, 34, Nil, Nil))
+                | Nil -> Node (key, value, Nil, Nil)
                 | Node (key', value', map1', map2') -> 
                 case {
                     | key == key' -> Node (key, value, map1', map2')
