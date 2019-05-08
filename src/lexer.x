@@ -52,8 +52,8 @@ tokens :-
 <0>            write                                                           { stringTerminalToToken IOToken}
 <0>            delete                                                          { stringTerminalToToken IOToken}
 <0>            show                                                            { stringTerminalToToken IOToken}
-<0>            to_int                                                          { stringTerminalToToken IOToken}
-<0>            to_float                                                        { stringTerminalToToken IOToken}
+<0>            s2i                                                             { stringTerminalToToken IOToken}
+<0>            s2f                                                             { stringTerminalToToken IOToken}
 <0>            i2c                                                             { stringTerminalToToken IOToken}
 <0>            c2i                                                             { stringTerminalToToken IOToken}
 <0>            \=\>                                                            { terminalToToken FollowsToken}
@@ -75,6 +75,8 @@ tokens :-
 <0>            \-\>                                                            { terminalToToken EntailsToken}
 <0>            \,                                                              { terminalToToken CommaToken}
 <0>            \?                                                              { terminalToToken WildcardToken}
+<0>            \<\<                                                            { terminalToToken ClassOpenToken}
+<0>            \>\>                                                            { terminalToToken ClassCloseToken}
 <0>            \+                                                              { stringTerminalToToken LevelOneOpToken} 
 <0>            \-                                                              { stringTerminalToToken LevelOneOpToken}
 <0>            \+\+                                                            { stringTerminalToToken LevelOneOpToken}
@@ -150,6 +152,8 @@ data Terminal =
     EntailsToken             |
     CommaToken               |
     WildcardToken            |
+    ClassOpenToken           |
+    ClassCloseToken          |
     LevelOneOpToken String   |
     LevelTwoOpToken String   |
     LevelThreeOpToken String |
@@ -306,6 +310,8 @@ terminalString ConsToken                  = ":"
 terminalString EntailsToken               = "->"
 terminalString CommaToken                 = ","
 terminalString WildcardToken              = "?"
+terminalString ClassOpenToken             = "<<"
+terminalString ClassCloseToken            = ">>"
 terminalString (LevelOneOpToken string)   = string
 terminalString (LevelTwoOpToken string)   = string
 terminalString (LevelThreeOpToken string) = string

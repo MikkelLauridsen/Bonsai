@@ -46,6 +46,7 @@ data Types = PrimType Prim
            | AlgeType TypeId
            | AlgePoly TypeId [Types]
            | PolyType String
+           | PolyClss String [String]
            | UniqType Types Bool
            | LazyType ExprAST
            | LazyPair ExprAST Types
@@ -72,6 +73,7 @@ instance Eq Types where
     AlgeType typeId1 == AlgeType typeId2 = typeId1 == typeId2
     AlgePoly typeId1 polys1 == AlgePoly typeId2 polys2 = typeId1 == typeId2 && polys1 == polys2
     PolyType name1 == PolyType name2 = name1 == name2
+    PolyClss name1 typs1 == PolyClss name2 typs2 = name1 == name2 && typs1 == typs2
     UniqType typ1 valid1 == UniqType typ2 valid2 = typ1 == typ2 && valid1 == valid2
     _ == _ = False
 
@@ -82,8 +84,10 @@ instance Ord Types where
     ListType typ1 `compare` ListType typ2 = typ1 `compare` typ2
     AlgeType typeId1 `compare` AlgeType typeId2 = typeId1 `compare` typeId2
     AlgePoly typeId1 _ `compare` AlgePoly typeId2 _ = typeId1 `compare` typeId2
+    PolyType name1 `compare` PolyType name2 = name1 `compare` name2
+    PolyClss name1 _ `compare` PolyClss name2 _ = name1 `compare` name2
     UniqType typ1 _ `compare` UniqType typ2 _ = typ1 `compare` typ2
-    _ `compare` _ = 1 `compare` 1
+    _ `compare` _ = EQ
 
 instance Show Prim where
     show IntPrim    = "Int"
@@ -102,6 +106,7 @@ instance Show Types where
     show (AlgeType typeId)    = typeName typeId
     show (AlgePoly typeId ps) = typeName typeId ++ "<" ++ ([show typ' | typ' <- init ps] >>= (++ ", ")) ++ show (last ps) ++ ">"
     show (PolyType name)      = name
+    show (PolyClss name typs')    = name ++ "<<" ++ ([typ' | typ' <- init typs'] >>= (++ ", ")) ++ last typs' ++ ">>"
     show (UniqType typ _)     = show typ ++ "*"
     show _                    = error "cannot convert a lazy type to string" 
 
@@ -143,6 +148,7 @@ data ProgAST = ProgAST TypeDclAST VarDclAST UtilData deriving Show
 data CompTypeAST = CompSimpleAST TypeId UtilData
                  | CompSimplePolyAST VarId UtilData
                  | CompPolyAST TypeId [CompTypeAST] UtilData
+                 | CompClssAST VarId [TypeId] UtilData
                  | CompListAST CompTypeAST UtilData
                  | CompTupleAST [CompTypeAST] UtilData
                  | CompFuncAST CompTypeAST CompTypeAST UtilData

@@ -23,8 +23,8 @@ var main::(System* -> (Bool, File*)) = sys::System* => {
     )
 }
 
-var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
-    key::k => {
+var bind::(Map<k<<Eq, Ord>>,v> -> (k<<Eq,Ord>> -> (v -> Map<k<<Eq,Ord>>,v>))) = map::Map<k<<Eq,Ord>>,v> => {
+    key::k<<Eq,Ord>> => {
         value::v => {
             match map {
                 | Nil -> Node (key, value, Nil, Nil)
@@ -39,8 +39,14 @@ var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
     }
 }
 
-var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
-    key::k => {
+var test::(k<<Num>> -> (k<<Num, Ord>> -> k<<Num, Ord>>)) = one::k<<Num>> => {  # TODO!!! this should not be allowed
+    two::k<<Num, Ord>> => {
+        one + two
+    }
+}
+
+var lookup::(Map<k<<Eq,Ord>>,v> -> (k<<Eq,Ord>> -> Maybe<v>)) = map::Map<k<<Eq,Ord>>,v> => {
+    key::k<<Eq,Ord>> => {
         match map {
             | Nil -> Nothing
             | Node (key', value', map1', map2') ->

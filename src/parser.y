@@ -46,6 +46,8 @@ import Ast
     '->'      { Token _ EntailsToken }
     ','       { Token _ CommaToken }
     '?'       { Token _ WildcardToken }
+    '<<'      { Token _ ClassOpenToken }
+    '>>'      { Token _ ClassCloseToken }
     one_op    { Token _ (LevelOneOpToken _) }
     two_op    { Token _ (LevelTwoOpToken _) }
     three_op  { Token _ (LevelThreeOpToken _) }
@@ -78,11 +80,15 @@ Poly_body   : Poly_body ',' var_id                                          { $1
                     
 Comp_type   : type_id                                                       { CompSimpleAST (getTypeId $1) (getUtilData $1) }
             | var_id                                                        { CompSimplePolyAST (getVarId $1) (getUtilData $1) }
+            | var_id '<<' Class_rep '>>'                                    { CompClssAST (getVarId $1) $3 (getUtilData $1)}
             | type_id '<' Comp_rep '>'                                      { CompPolyAST (getTypeId $1) $3 (getUtilData $1) }
             | '[' Comp_type ']'                                             { CompListAST $2 (getUtilData $1) }
             | '(' Comp_rep ')'                                              { handleCompParen $2 (getUtilData $1) }
             | '(' Comp_type '->' Comp_type ')'                              { CompFuncAST $2 $4 (getUtilData $1) }
-                    
+
+Class_rep   : Class_rep ',' type_id                                         { $1 ++ [(getTypeId $3)] }
+            | type_id                                                       { [(getTypeId $1)] }
+
 Comp_rep    : Comp_rep ',' Comp_type                                        { $1 ++ [$3] }
             | Comp_type                                                     { [$1] }
                     

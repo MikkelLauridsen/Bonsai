@@ -152,6 +152,14 @@ types (CompPolyAST typeId comps' utilData) sigma =
                         else Left (formatErr ("algebraic type '" ++ show typ ++ "' cannot be applied to " ++ show (length typs) ++ "type(s)") utilData)
         (Right typ) -> Left (formatErr ("type '" ++ show typ ++ "' cannot be used polymorphically") utilData)
 
+types (CompClssAST varId typeIds utilData) _ =
+    if legalTypeClasses classes
+        then Right (PolyClss var classes)
+        else Left (formatErr ("unknown type-class in type '" ++ show (PolyClss var classes) ++ "'") utilData)
+    where
+        classes = Data.List.map typeName typeIds
+        var = varName varId
+
 types (CompListAST comp' _) sigma =
     case types comp' sigma of
         err@(Left _) -> err
@@ -387,6 +395,11 @@ applyTypeBindings typ@(PolyType var) typeBinds =
         Nothing     -> typ
         (Just typ') -> typ'
 
+applyTypeBindings typ@(PolyClss var _) typeBinds =
+    case Map.lookup var typeBinds of
+        Nothing     -> typ
+        (Just typ') -> typ'
+
 applyTypeBindings (UniqType typ valid) typeBinds = UniqType (applyTypeBindings typ typeBinds) valid
 applyTypeBindings _ _                            = error "cannot apply type bindings to a lazy type."
 
@@ -421,6 +434,18 @@ analyzeTypevars typ1@(PolyType var) typ2 typeBinds =
             (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
             (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
 
+analyzeTypevars typ1@(PolyClss var1 typs1) typ2@(PolyClss var2 typs2) typeBinds =
+    if typ1 == typ2
+        then (True, typeBinds)
+        else case Map.lookup var1 typeBinds of
+            Nothing     -> (compareClasses typs1 typs2, Map.insert var1 typ2 typeBinds)
+            (Just typ3) -> analyzeTypevars typ3 typ2 typeBinds
+
+analyzeTypevars typ1@(PolyClss var typs) typ2 typeBinds =
+    case Map.lookup var typeBinds of
+        Nothing                  -> (checkClasses typs typ2, Map.insert var typ2 typeBinds)
+        (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
+
 analyzeTypevars (UniqType typ1 _) (UniqType typ2 _) typeBinds = analyzeTypevars typ1 typ2 typeBinds
 
 -- catch all pattern
@@ -434,6 +459,20 @@ analyzeTypevarsList (t1:ts1) (t2:ts2) typeBinds =
     case analyzeTypevars t1 t2 typeBinds of
         (True, typeBinds')  -> analyzeTypevarsList ts1 ts2 typeBinds'
         res@(False, _)      -> res
+
+checkClasses :: [String] -> Types -> Bool
+checkClasses [] _       = True
+checkClasses (c:cs) typ =
+    if (getClassFun c) typ
+        then checkClasses cs typ
+        else False
+
+compareClasses :: [String] -> [String] -> Bool
+compareClasses [] _       = True
+compareClasses (c:cs) cs2 =
+    if elem c cs2
+        then compareClasses cs cs2
+        else False
 
 evalLetIn :: TypeVarAST -> ExprAST -> ExprAST -> Env -> Sig -> Either String (Types, [Binding])
 evalLetIn (TypedVarAST x s utilData) expr1 expr2 env sigma =
@@ -485,40 +524,126 @@ evalTer t env sigma utilData =
                 else Right (sig, [])
         (Just (_, mem, sig)) -> Right (sig, [])
 
-evalConst :: ConstAST -> Types -- TODO: typeclasses !!
+numClss  = PolyClss "a0" ["Num"]
+eqClss   = PolyClss "a0" ["Eq"]
+ordClss  = PolyClss "a0" ["Ord"]
+showClss = PolyClss "a0" ["Show"]
+biClss   = PolyClss "a0" ["Bi"]
+
+getClassFun :: String -> (Types -> Bool)
+getClassFun "Num"  = numFun
+getClassFun "Eq"   = eqFun
+getClassFun "Ord"  = ordFun
+getClassFun "Show" = showFun
+getClassFun "Bi"   = biFun
+getClassFun _      = error "unknown typeclass."
+
+legalTypeClasses :: [String] -> Bool
+legalTypeClasses []     = True
+legalTypeClasses (c:cs) =
+    if legalTypeClass c
+        then legalTypeClasses cs
+        else False
+
+legalTypeClass :: String -> Bool
+legalTypeClass "Num"  = True
+legalTypeClass "Eq"   = True
+legalTypeClass "Ord"  = True
+legalTypeClass "Show" = True
+legalTypeClass "Bi"   = True
+legalTypeClass _      = False
+
+numFun :: Types -> Bool
+numFun (PrimType IntPrim)   = True
+numFun (PrimType FloatPrim) = True
+numFun (PrimType CharPrim)  = True
+numFun (UniqType typ _)     = numFun typ
+numFun (PolyClss _ typs)    = elem "Num" typs
+numFun _                    = False
+
+eqFun :: Types -> Bool
+eqFun (PrimType _)      = True
+eqFun (FuncType _ _)    = False
+eqFun (TuplType typs)  = checkMultiple typs eqFun
+eqFun (ListType typ)    = eqFun typ
+eqFun EmptList          = True
+eqFun (AlgeType _)      = True
+eqFun (AlgePoly _ typs) = checkMultiple typs eqFun
+eqFun (PolyType _)      = False
+eqFun (PolyClss _ typs) = elem "Eq" typs
+eqFun (UniqType typ _)  = eqFun typ
+eqFun _                 = False
+
+ordFun :: Types -> Bool
+ordFun (PrimType IntPrim)   = True
+ordFun (PrimType FloatPrim) = True
+ordFun (PrimType CharPrim)  = True
+ordFun (ListType typ)       = ordFun typ
+ordFun (UniqType typ _)     = ordFun typ
+ordFun (PolyClss _ typs)    = elem "Ord" typs
+ordFun _                    = False
+
+showFun :: Types -> Bool
+showFun (PrimType _)      = True
+showFun (FuncType _ _)    = False
+showFun (TuplType typs)  = checkMultiple typs showFun
+showFun (ListType typ)    = eqFun typ
+showFun EmptList          = True
+showFun (AlgeType _)      = True
+showFun (AlgePoly _ typs) = checkMultiple typs showFun
+showFun (PolyType _)      = False
+showFun (PolyClss _ typs) = elem "Show" typs
+showFun (UniqType typ _)  = showFun typ
+showFun _                 = False
+
+biFun :: Types -> Bool
+biFun (PrimType IntPrim)  = True
+biFun (PrimType CharPrim) = True
+biFun (UniqType typ _)    = biFun typ
+biFun (PolyClss _ typs)   = elem "Bi" typs
+biFun _                   = False
+
+checkMultiple :: [Types] -> (Types -> Bool) -> Bool
+checkMultiple [] _           = True
+checkMultiple (typ:typs) fun =
+    if fun typ
+        then checkMultiple typs fun
+        else False
+
+evalConst :: ConstAST -> Types
 evalConst (IntConstAST _ _)          = PrimType IntPrim
 evalConst (BoolConstAST _ _)         = PrimType BoolPrim
 evalConst (FloatConstAST _ _)        = PrimType FloatPrim
 evalConst (CharConstAST _ _)         = PrimType CharPrim
-evalConst (UnaryMinusConstAST _)     = FuncType (PolyType "a0") (PolyType "a0")
-evalConst (PlusConstAST _)           = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (MinusConstAST _)          = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (TimesConstAST _)          = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (DivideConstAST _)         = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (ModuloConstAST _)         = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (EqualsConstAST _)         = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PrimType BoolPrim))
+evalConst (UnaryMinusConstAST _)     = FuncType numClss numClss
+evalConst (PlusConstAST _)           = FuncType numClss (FuncType numClss numClss)
+evalConst (MinusConstAST _)          = FuncType numClss (FuncType numClss numClss)
+evalConst (TimesConstAST _)          = FuncType numClss (FuncType numClss numClss)
+evalConst (DivideConstAST _)         = FuncType numClss (FuncType numClss numClss)
+evalConst (ModuloConstAST _)         = FuncType numClss (FuncType numClss numClss)
+evalConst (EqualsConstAST _)         = FuncType eqClss (FuncType eqClss (PrimType BoolPrim))
 evalConst (NotConstAST _)            = FuncType (PrimType BoolPrim) (PrimType BoolPrim)
-evalConst (GreaterConstAST _)        = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PrimType BoolPrim))
-evalConst (LessConstAST _)           = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PrimType BoolPrim))
-evalConst (GreaterOrEqualConstAST _) = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PrimType BoolPrim))
-evalConst (LessOrEqualConstAST _)    = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PrimType BoolPrim))
+evalConst (GreaterConstAST _)        = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
+evalConst (LessConstAST _)           = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
+evalConst (GreaterOrEqualConstAST _) = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
+evalConst (LessOrEqualConstAST _)    = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
 evalConst (AppenConstAST _)          = FuncType (PolyType "a0") (FuncType (ListType (PolyType "a0")) (ListType (PolyType "a0")))
 evalConst (ConcatenateConstAST _)    = FuncType (ListType (PolyType "a0")) (FuncType (ListType (PolyType "a0")) (ListType (PolyType "a0")))
 evalConst (AndConstAST _)            = FuncType (PrimType BoolPrim) (FuncType (PrimType BoolPrim) (PrimType BoolPrim))
 evalConst (OrConstAST _)             = FuncType (PrimType BoolPrim) (FuncType (PrimType BoolPrim) (PrimType BoolPrim))
-evalConst (BiLShiftConstAST _)       = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (BiRShiftConstAST _)       = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (BiNotConstAST _)          = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (BiAndConstAST _)          = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (BiXorConstAST _)          = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
-evalConst (BiOrConstAST _)           = FuncType (PolyType "a0") (FuncType (PolyType "a0") (PolyType "a0"))
+evalConst (BiLShiftConstAST _)       = FuncType biClss (FuncType biClss biClss)
+evalConst (BiRShiftConstAST _)       = FuncType biClss (FuncType biClss biClss)
+evalConst (BiNotConstAST _)          = FuncType biClss (FuncType biClss biClss)
+evalConst (BiAndConstAST _)          = FuncType biClss (FuncType biClss biClss)
+evalConst (BiXorConstAST _)          = FuncType biClss (FuncType biClss biClss)
+evalConst (BiOrConstAST _)           = FuncType biClss (FuncType biClss biClss)
 evalConst (OpenReadConstAST _)       = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True, UniqType (PrimType FilePrim) True]))
 evalConst (OpenWriteConstAST _)      = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True, UniqType (PrimType FilePrim) True]))
 evalConst (CloseConstAST _)          = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True]))
 evalConst (ReadConstAST _)           = FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, PrimType CharPrim, UniqType (PrimType FilePrim) True])
 evalConst (WriteConstAST _)          = FuncType (PrimType CharPrim) (FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, UniqType (PrimType FilePrim) True]))
 evalConst (DeleteConstAST _)         = FuncType (UniqType (PrimType SystemPrim) True) (FuncType (UniqType (PrimType FilePrim) True) (TuplType [PrimType BoolPrim, UniqType (PrimType SystemPrim) True]))
-evalConst (ShowConstAST _)           = FuncType (PolyType "a0") (ListType (PrimType CharPrim))
+evalConst (ShowConstAST _)           = FuncType showClss (ListType (PrimType CharPrim))
 evalConst (ToIntConstAST _)          = FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, PrimType IntPrim])
 evalConst (ToFloatConstAST _)        = FuncType (ListType (PrimType CharPrim)) (TuplType [PrimType BoolPrim, PrimType FloatPrim])
 evalConst (IntToCharAST _)           = FuncType (PrimType IntPrim) (PrimType CharPrim)
