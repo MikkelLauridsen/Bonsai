@@ -2,11 +2,14 @@ module Prettifier (prettyShow, prettyShowList) where
 
 import Ast
 
+-- Creates 4 * count spaces
+indent :: Int -> String
 indent count = take (4 * count) (cycle "    ")
 
 class PrettyShow a where
     prettyShow :: a -> Int -> String
 
+-- Calls prettyShow on each element in a list, seperated by 'sep'
 prettyShowList :: PrettyShow a => [a] -> Int -> String -> String
 prettyShowList [] ic sep = ""
 prettyShowList [x] ic sep = prettyShow x ic
@@ -33,6 +36,7 @@ instance PrettyShow TypeVarAST where
     prettyShow (UntypedVarAST varId _) ic = prettyShow varId ic
     prettyShow (TypedVarAST varId compType _) ic = prettyShow varId ic ++ "::" ++ prettyShow compType ic
 
+--type ... = { ... }
 instance PrettyShow TypeDclAST where
     prettyShow (TypeDclAST typeId cons rest _) ic = 
         indent ic ++ "type " ++ prettyShow typeId ic ++ " = {\n" ++ prettyShowList cons (ic + 1) "" ++ 
@@ -46,6 +50,7 @@ instance PrettyShow ConsAST where
     prettyShow (DoubleConsAST typeId compType _) ic =
         indent ic ++ "| " ++ prettyShow typeId ic ++ " " ++ prettyShow compType ic ++ "\n"
 
+--var ... = ...
 instance PrettyShow VarDclAST where
     prettyShow (VarDclAST typeVar expr rest _) ic = 
         indent ic ++ "var " ++ prettyShow typeVar ic ++ " = " ++ prettyShow expr ic ++
@@ -112,9 +117,11 @@ instance PrettyShow PatternAST where
     prettyShow (VarPatternAST varId _) ic = prettyShow varId ic
     prettyShow (TypePatternAST typeId _) ic = prettyShow typeId ic
     prettyShow (TypeConsPatternAST typeId pattern _) ic = prettyShow typeId ic ++ " " ++ prettyShow pattern ic
+    -- [...]
     prettyShow (ListPatternAST patterns _) ic = "[" ++ prettyShowList patterns ic ", " ++ "]"
+    -- (...)
     prettyShow (TuplePatternAST patterns _) ic = "(" ++ prettyShowList patterns ic ", " ++ ")"
-    --  (..:..)
+    -- (..:..)
     prettyShow (DecompPatternAST pattern varId _) ic = "(" ++ prettyShow pattern ic ++ ":" ++ prettyShow varId ic ++ ")"
     prettyShow (WildPatternAST _) ic = "?"
 
@@ -152,7 +159,7 @@ instance PrettyShow ConstAST where
     prettyShow (WriteConstAST _) ic = "write"
     prettyShow (DeleteConstAST _) ic = "delete"
     prettyShow (ShowConstAST _) ic = "show"
-    prettyShow (ToIntConstAST _) ic = "to_int"
-    prettyShow (ToFloatConstAST _) ic = "to_float"
+    prettyShow (ToIntConstAST _) ic = "s2i"
+    prettyShow (ToFloatConstAST _) ic = "s2f"
     prettyShow (IntToCharAST _) ic = "i2c"
     prettyShow (CharToIntAST _) ic = "c2i"
