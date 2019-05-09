@@ -90,7 +90,7 @@ buildSignature (CompSimpleAST typeId utilData) _ _ ls =
 
 buildSignature (CompSimplePolyAST varId utilData) memberType typeVars _ =
     if elem (varName varId) typeVars
-        then Right $ PolyType (varName varId)
+        then Right (UnbdPoly (varName varId) [])
         else Left (formatErr ("algebraic type '" ++ typeName memberType ++ "' does not have type-variable '" ++ varName varId ++ "' in its signature") utilData)
 
 buildSignature (CompPolyAST typeId comps' utilData) memberType typeVars ls =
@@ -138,7 +138,7 @@ types (CompSimpleAST typeId utilData) sigma =
         (Left id)   -> Left (formatErr ("unknown type '" ++ typeName id ++ "'") utilData)
         (Right typ) -> Right typ
 
-types (CompSimplePolyAST varId _) _  = Right $ PolyType (varName varId)
+types (CompSimplePolyAST varId _) _  = Right (UnbdPoly (varName varId) [])
 
 types (CompPolyAST typeId comps' utilData) sigma = 
     case idToTypes typeId sigma of
@@ -155,7 +155,7 @@ types (CompPolyAST typeId comps' utilData) sigma =
 types (CompClssAST varId typeIds utilData) _ =
     if legalTypeClasses classes
         then Right (PolyClss var classes)
-        else Left (formatErr ("unknown type-class in type '" ++ show (PolyClss var classes) ++ "'") utilData)
+        else Left (formatErr ("unknown type-class in type '" ++ show (UnbdPoly var classes) ++ "'") utilData)
     where
         classes = Data.List.map typeName typeIds
         var = varName varId
@@ -201,7 +201,7 @@ lazyIdToTypes id ls =
                     Nothing             -> Nothing
 
 stringsToPolyTypes :: [String] -> [Types]
-stringsToPolyTypes = Data.List.map (\s -> PolyType s)
+stringsToPolyTypes = Data.List.map (\s -> UnbdPoly s [])
 
 idToTypes :: TypeId -> Sig -> Either TypeId Types
 idToTypes id sigma =
@@ -390,7 +390,7 @@ applyTypeBindings EmptList _                       = EmptList
 applyTypeBindings typ@(AlgeType _) _               = typ
 applyTypeBindings (AlgePoly typeId typs) typeBinds = AlgePoly typeId [applyTypeBindings typ typeBinds | typ <- typs]
 
-applyTypeBindings typ@(PolyType var) typeBinds =
+applyTypeBindings typ@(UnbdPoly var _) typeBinds =
     case Map.lookup var typeBinds of
         Nothing     -> typ
         (Just typ') -> typ'
@@ -426,22 +426,42 @@ analyzeTypevars (AlgePoly typeId1 typs1) (AlgePoly typeId2 typs2) typeBinds =
 analyzeTypevars (AlgePoly typeId1 _) (AlgeType typeId2) typeBinds = (typeId1 == typeId2, typeBinds)
 analyzeTypevars (AlgeType typeId1) (AlgePoly typeId2 _) typeBinds = (typeId1 == typeId2, typeBinds)
 
-analyzeTypevars typ1@(PolyType var) typ2 typeBinds =
-    if typ2 == typ1
-        then (True, typeBinds)
-        else case Map.lookup var typeBinds of
-            Nothing                  -> (True, Map.insert var typ2 typeBinds)
-            (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
-            (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
+--analyzeTypevars typ1@(PolyType var) typ2 typeBinds =
+--    if typ2 == typ1
+--        then (True, typeBinds)
+--        else case Map.lookup var typeBinds of
+--            Nothing                  -> (True, Map.insert var typ2 typeBinds)
+--            (Just typ3@(PolyType _)) -> (typ2 == typ3, typeBinds)
+--            (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
 
-analyzeTypevars typ1@(PolyClss var1 typs1) typ2@(PolyClss var2 typs2) typeBinds =
+analyzeTypevars typ1@(UnbdPoly var1 typs1) typ2@(UnbdPoly var2 typs2) typeBinds =
+    if typ1 == typ2
+        then (True, typeBinds)
+        else case Map.lookup var1 typeBinds of
+            Nothing     -> (compareClasses typs1 typs2, Map.insert var1 (PolyClss var2 typs2) typeBinds)
+            (Just typ3) -> analyzeTypevars typ3 typ2 typeBinds
+
+analyzeTypevars typ1@(UnbdPoly var1 typs1) typ2@(PolyClss _ typs2) typeBinds =
     if typ1 == typ2
         then (True, typeBinds)
         else case Map.lookup var1 typeBinds of
             Nothing     -> (compareClasses typs1 typs2, Map.insert var1 typ2 typeBinds)
             (Just typ3) -> analyzeTypevars typ3 typ2 typeBinds
 
-analyzeTypevars typ1@(PolyClss var typs) typ2 typeBinds =
+analyzeTypevars (UnbdPoly var typs) typ2 typeBinds =
+    case Map.lookup var typeBinds of
+        Nothing                  -> (checkClasses typs typ2, Map.insert var typ2 typeBinds)
+        (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
+            
+
+analyzeTypevars typ1@(PolyClss var1 _) typ2@(PolyClss _ _) typeBinds =
+    if typ1 == typ2
+        then (True, typeBinds)
+        else case Map.lookup var1 typeBinds of
+            Nothing     -> (False, typeBinds)
+            (Just typ3) -> analyzeTypevars typ3 typ2 typeBinds
+
+analyzeTypevars (PolyClss var typs) typ2 typeBinds =
     case Map.lookup var typeBinds of
         Nothing                  -> (checkClasses typs typ2, Map.insert var typ2 typeBinds)
         (Just typ3)              -> analyzeTypevars typ3 typ2 typeBinds
@@ -524,11 +544,11 @@ evalTer t env sigma utilData =
                 else Right (sig, [])
         (Just (_, mem, sig)) -> Right (sig, [])
 
-numClss  = PolyClss "a0" ["Num"]
-eqClss   = PolyClss "a0" ["Eq"]
-ordClss  = PolyClss "a0" ["Ord"]
-showClss = PolyClss "a0" ["Show"]
-biClss   = PolyClss "a0" ["Bi"]
+numClss  = UnbdPoly "a0" ["Num"]
+eqClss   = UnbdPoly "a0" ["Eq"]
+ordClss  = UnbdPoly "a0" ["Ord"]
+showClss = UnbdPoly "a0" ["Show"]
+biClss   = UnbdPoly "a0" ["Bi"]
 
 getClassFun :: String -> (Types -> Bool)
 getClassFun "Num"  = numFun
@@ -559,6 +579,7 @@ numFun (PrimType FloatPrim) = True
 numFun (PrimType CharPrim)  = True
 numFun (UniqType typ _)     = numFun typ
 numFun (PolyClss _ typs)    = elem "Num" typs
+numFun (UnbdPoly _ typs)    = elem "Num" typs
 numFun _                    = False
 
 eqFun :: Types -> Bool
@@ -569,8 +590,8 @@ eqFun (ListType typ)    = eqFun typ
 eqFun EmptList          = True
 eqFun (AlgeType _)      = True
 eqFun (AlgePoly _ typs) = checkMultiple typs eqFun
-eqFun (PolyType _)      = False
 eqFun (PolyClss _ typs) = elem "Eq" typs
+eqFun (UnbdPoly _ typs) = elem "Eq" typs
 eqFun (UniqType typ _)  = eqFun typ
 eqFun _                 = False
 
@@ -581,6 +602,7 @@ ordFun (PrimType CharPrim)  = True
 ordFun (ListType typ)       = ordFun typ
 ordFun (UniqType typ _)     = ordFun typ
 ordFun (PolyClss _ typs)    = elem "Ord" typs
+ordFun (UnbdPoly _ typs)    = elem "Ord" typs
 ordFun _                    = False
 
 showFun :: Types -> Bool
@@ -591,8 +613,8 @@ showFun (ListType typ)    = eqFun typ
 showFun EmptList          = True
 showFun (AlgeType _)      = True
 showFun (AlgePoly _ typs) = checkMultiple typs showFun
-showFun (PolyType _)      = False
 showFun (PolyClss _ typs) = elem "Show" typs
+showFun (UnbdPoly _ typs) = elem "Show" typs
 showFun (UniqType typ _)  = showFun typ
 showFun _                 = False
 
@@ -601,6 +623,7 @@ biFun (PrimType IntPrim)  = True
 biFun (PrimType CharPrim) = True
 biFun (UniqType typ _)    = biFun typ
 biFun (PolyClss _ typs)   = elem "Bi" typs
+biFun (UnbdPoly _ typs)   = elem "Bi" typs
 biFun _                   = False
 
 checkMultiple :: [Types] -> (Types -> Bool) -> Bool
@@ -627,8 +650,8 @@ evalConst (GreaterConstAST _)        = FuncType ordClss (FuncType ordClss (PrimT
 evalConst (LessConstAST _)           = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
 evalConst (GreaterOrEqualConstAST _) = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
 evalConst (LessOrEqualConstAST _)    = FuncType ordClss (FuncType ordClss (PrimType BoolPrim))
-evalConst (AppenConstAST _)          = FuncType (PolyType "a0") (FuncType (ListType (PolyType "a0")) (ListType (PolyType "a0")))
-evalConst (ConcatenateConstAST _)    = FuncType (ListType (PolyType "a0")) (FuncType (ListType (PolyType "a0")) (ListType (PolyType "a0")))
+evalConst (AppenConstAST _)          = FuncType (UnbdPoly "a0" []) (FuncType (ListType (UnbdPoly "a0" [])) (ListType (UnbdPoly "a0" [])))
+evalConst (ConcatenateConstAST _)    = FuncType (ListType (UnbdPoly "a0" [])) (FuncType (ListType (UnbdPoly "a0" [])) (ListType (UnbdPoly "a0" [])))
 evalConst (AndConstAST _)            = FuncType (PrimType BoolPrim) (FuncType (PrimType BoolPrim) (PrimType BoolPrim))
 evalConst (OrConstAST _)             = FuncType (PrimType BoolPrim) (FuncType (PrimType BoolPrim) (PrimType BoolPrim))
 evalConst (BiLShiftConstAST _)       = FuncType biClss (FuncType biClss biClss)

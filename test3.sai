@@ -18,9 +18,16 @@ var main::(System* -> (Bool, File*)) = sys::System* => {
     in (
         let (?, stdout') = writes ((show env) ++ "\n") stdout
         in (
-            writes (show (lookup env "xyyy")) stdout'
+            #writes (show (lookup env "xyyy")) stdout'
+            writes (show (testuu 4 6)) stdout'
         )
     )
+}
+
+var testuu::(a<<Num, Bi>> -> (a<<Num, Bi>> -> a<<Num, Bi>>)) = one::a<<Num, Bi>> => { # TODO!!!
+    two::a<<Num, Bi>> => {
+        one * two b<< (one / two)
+    }
 }
 
 var bind::(Map<k<<Eq, Ord>>,v> -> (k<<Eq,Ord>> -> (v -> Map<k<<Eq,Ord>>,v>))) = map::Map<k<<Eq,Ord>>,v> => {
@@ -39,7 +46,7 @@ var bind::(Map<k<<Eq, Ord>>,v> -> (k<<Eq,Ord>> -> (v -> Map<k<<Eq,Ord>>,v>))) = 
     }
 }
 
-var test::(k<<Num>> -> (k<<Num, Ord>> -> k<<Num, Ord>>)) = one::k<<Num>> => {  # TODO!!! this should not be allowed
+var test::(k<<Num, Ord>> -> (k<<Num, Ord>> -> k<<Num, Ord>>)) = one::k<<Num, Ord>> => { 
     two::k<<Num, Ord>> => {
         one + two
     }
