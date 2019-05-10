@@ -33,6 +33,7 @@ library
       Actions
       Prettifier
       Typesystem
+      Inference
       Semantics
   other-modules:
       Paths_p4
