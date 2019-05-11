@@ -13,6 +13,9 @@ import Data.Set as Set
 -- type-environment type
 type Env = Map VarId Types
 
+-- a termconstructor has a name an associated type and optionally a signature
+type TermConstructor = (TypeId, Types, Types)
+
 -- type for sets of algebraic types
 type Sig = Set TermConstructor
 

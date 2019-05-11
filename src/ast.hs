@@ -15,7 +15,6 @@ module Ast
     , ConstAST(..)
     , Types(..)
     , Prim(..)
-    , TermConstructor
     , initUtilData
     , LazyAlgebraicType
     , LazySig

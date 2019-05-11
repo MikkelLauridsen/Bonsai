@@ -42,6 +42,9 @@ instance Show Type where
     show (PolyT (TVar name []))      = name
     show (PolyT (TVar name classes)) = name ++ "<<" ++ ([show class' | class' <- init classes] >>= (++ ", ")) ++ show (last classes) ++ ">>"
 
+-- a termconstructor has a name an associated type and optionally a signature
+type TermConstructor = (TypeId, Type, Type)
+
 type Sig = Set TermConstructor
 
 type Constraint = (Type, Type, UtilData)
@@ -53,10 +56,10 @@ data TypeVar = TVar String [TypeClass] deriving (Eq, Ord)
 data Scheme = ForAll [TypeVar] Type  
 
 -- type-environment type
-newtype TypeEnv = TypeEnv (Map String Scheme)
+newtype TypeEnv = TypeEnv (Map VarId Scheme)
 
 -- type-environment binding format
-type Binding = (String, Scheme)
+type Binding = (VarId, Scheme)
 
 class Substitutable a where
     ftv :: a -> Set TypeVar
@@ -99,7 +102,7 @@ data TypeError = LinearTypeError Type UtilData
                | VariableRedefinitionError VarId UtilData
                | TypeRedefinitionError TypeId UtilData
                | TermConstructorRedefinitionError TypeId UtilData
-               | TypeDeclarationConflictError TypeId UtilData
+               | UndefinedTermConstructorError TypeId UtilData
                | TypeClassMismatchError Type Type UtilData
                | TypeMismatchError Type Type UtilData
                | MatchPatternMismatchError Type PatternAST UtilData
@@ -125,6 +128,7 @@ evalError (VariableScopeError varId utilData)                = formatErr ("varia
 evalError (VariableRedefinitionError varId utilData)         = formatErr ("global variable '" ++ varName varId ++ "' cannot be redefined globally") utilData
 evalError (TypeRedefinitionError typeId utilData)            = formatErr ("algebraic type '" ++ typeName typeId ++  "' cannot be redefined") utilData
 evalError (TermConstructorRedefinitionError typeId utilData) = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be redefined") utilData
+evalError (UndefinedTermConstructorError typeId utilData)    = formatErr ("unknown termconstructor '" ++  typeName typeId ++ "'") utilData
 evalError (TypeClassMismatchError typ1 typ2 utilData)        = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
 evalError (TypeMismatchError typ1 typ2 utilData)             = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
 evalError (MatchPatternMismatchError typ pat utilData)       = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
@@ -163,6 +167,12 @@ has sigma t =
         Nothing            -> False
         (Just (_, _, _)) -> True
 
+getSignature :: Sig -> TypeId -> Maybe Type
+getSignature sigma t =
+    case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
+        Nothing            -> Nothing
+        (Just (_, _, typ)) -> Just typ
+        
 -- unification
 
 unifyAll :: InferT Substitution
@@ -181,6 +191,15 @@ unify typ1@(PrimT prim1) typ2@(PrimT prim2) utilData =
     if prim1 == prim2
         then return Map.empty
         else throwError $ TypeMismatchError typ1 typ2 utilData
+
+unify typ1@(PolyT var@(TVar _ classes1)) typ2@(PolyT (TVar id classes2)) _ = do
+    state <- get
+    put state{ constraints = List.map (substituteConstraint) (constraints state) }
+    return sub
+    where
+        classes' = classes1 `List.union` classes2
+        sub = Map.singleton var (PolyT (TVar id classes'))
+        substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
 
 unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData =
     if List.foldr ((&&) . (checkClass typ2)) True classes
@@ -295,6 +314,11 @@ biFun _                          = False
 
 -- constraint rules begin
 
+addConstraint :: Type -> Type -> UtilData -> InferT ()
+addConstraint typ1 typ2 utilData = do
+    state <- get
+    put state{ constraints = constraints state ++ [(typ1, typ2, utilData)] }
+
 proj :: Scheme -> InferT Type
 proj (ForAll vars typ) = do
     vars' <- mapM fresh vars
@@ -307,3 +331,97 @@ gen :: TypeEnv -> Type -> Scheme -- http://dev.stephendiehl.com/fun/006_hindley_
 gen env typ = ForAll vars typ
     where
         vars = Set.toList (ftv typ `Set.difference` ftv env)
+
+inferExpr :: ExprAST -> TypeEnv -> InferT (Type, [Binding])
+inferExpr (VarExprAST varId utilData) (TypeEnv env) =
+    case Map.lookup varId env of
+        Nothing                -> throwError $ VariableScopeError varId utilData
+        Just (ForAll vars typ) -> do
+            ins <- proj (ForAll vars typ')
+            return (ins, [(varId, ForAll vars typ')])
+            where
+                typ' = 
+                    case typ of
+                        (UniqT typ'' v) -> UniqT typ'' False
+                        _               -> typ       
+
+inferExpr (ConstExprAST c _) _ = do 
+    typ <- inferConst c
+    return (typ, [])
+
+inferExpr (TypeExprAST typeId utilData) _ = do
+    state <- get
+    case getSignature (sigma state) typeId of
+        Nothing  -> throwError $ UndefinedTermConstructorError typeId utilData
+        Just typ -> return (typ, [])
+
+inferExpr (ParenExprAST expr _) env = inferExpr expr env
+
+inferExpr (LambdaExprAST (UntypedVarAST varId _) expr _) env = do
+    tvar <- genTVar []
+    let env' = env `except` (varId, ForAll [] tvar)
+    (typ, bindings)  <- inferExpr expr env'
+    return (FuncT tvar typ, bindings)
+
+
+binaryFun :: [TypeClass] -> InferT Type
+binaryFun classes = do
+    tvar <- genTVar classes
+    return $ FuncT tvar (FuncT tvar tvar)
+
+inferConst :: ConstAST -> InferT Type
+inferConst (IntConstAST _ _)   = return $ PrimT IntPrim
+inferConst (BoolConstAST _ _)  = return $ PrimT BoolPrim 
+inferConst (FloatConstAST _ _) = return $ PrimT FloatPrim
+inferConst (CharConstAST _ _)  = return $ PrimT CharPrim
+
+inferConst (UnaryMinusConstAST _) = do
+    tvar <- genTVar [numClass]
+    return $ FuncT tvar tvar
+
+inferConst (PlusConstAST _)   = binaryFun [numClass]
+inferConst (MinusConstAST _)  = binaryFun [numClass]
+inferConst (TimesConstAST _)  = binaryFun [numClass]
+inferConst (DivideConstAST _) = binaryFun [numClass]
+inferConst (ModuloConstAST _) = binaryFun [numClass]
+inferConst (EqualsConstAST _) = binaryFun [eqClass]
+
+inferConst (NotConstAST _) = return $ FuncT (PrimT BoolPrim) (PrimT BoolPrim)
+
+inferConst (GreaterConstAST _)        = binaryFun [ordClass]
+inferConst (LessConstAST _)           = binaryFun [ordClass]
+inferConst (GreaterOrEqualConstAST _) = binaryFun [ordClass]
+inferConst (LessOrEqualConstAST _)    = binaryFun [ordClass]
+
+inferConst (AppenConstAST _) = do
+    tvar <- genTVar []
+    return $ FuncT (tvar) (FuncT (ListT tvar) (ListT tvar))
+
+inferConst (ConcatenateConstAST _) = do
+    tvar <- genTVar []
+    return $ FuncT (ListT tvar) (FuncT (ListT tvar) (ListT tvar))
+
+inferConst (AndConstAST _) = return $ FuncT (PrimT BoolPrim) (FuncT (PrimT BoolPrim) (PrimT BoolPrim)) 
+inferConst (OrConstAST _)  = return $ FuncT (PrimT BoolPrim) (FuncT (PrimT BoolPrim) (PrimT BoolPrim))
+
+inferConst (BiLShiftConstAST _) = binaryFun [biClass] 
+inferConst (BiRShiftConstAST _) = binaryFun [biClass] 
+inferConst (BiNotConstAST _)    = binaryFun [biClass] 
+inferConst (BiAndConstAST _)    = binaryFun [biClass] 
+inferConst (BiXorConstAST _)    = binaryFun [biClass] 
+inferConst (BiOrConstAST _)     = binaryFun [biClass] 
+
+inferConst (OpenReadConstAST _)  = return $ FuncT (UniqT (PrimT SystemPrim) True) (FuncT (ListT (PrimT CharPrim)) (TuplT [PrimT BoolPrim, UniqT (PrimT SystemPrim) True, UniqT (PrimT FilePrim) True]))
+inferConst (OpenWriteConstAST _) = return $ FuncT (UniqT (PrimT SystemPrim) True) (FuncT (ListT (PrimT CharPrim)) (TuplT [PrimT BoolPrim, UniqT (PrimT SystemPrim) True, UniqT (PrimT FilePrim) True]))
+inferConst (CloseConstAST _)     = return $ FuncT (UniqT (PrimT SystemPrim) True) (FuncT (UniqT (PrimT FilePrim) True) (TuplT [PrimT BoolPrim, UniqT (PrimT SystemPrim) True]))
+inferConst (ReadConstAST _)      = return $ FuncT (UniqT (PrimT FilePrim) True) (TuplT [PrimT BoolPrim, PrimT CharPrim, UniqT (PrimT FilePrim) True])
+inferConst (WriteConstAST _)     = return $ FuncT (PrimT CharPrim) (FuncT (UniqT (PrimT FilePrim) True) (TuplT [PrimT BoolPrim, UniqT (PrimT FilePrim) True]))
+inferConst (DeleteConstAST _)    = return $ FuncT (UniqT (PrimT SystemPrim) True) (FuncT (UniqT (PrimT FilePrim) True) (TuplT [PrimT BoolPrim, UniqT (PrimT SystemPrim) True]))
+inferConst (ToIntConstAST _)     = return $ FuncT (ListT (PrimT CharPrim)) (TuplT [PrimT BoolPrim, PrimT IntPrim])
+inferConst (ToFloatConstAST _)   = return $ FuncT (ListT (PrimT CharPrim)) (TuplT [PrimT BoolPrim, PrimT FloatPrim])
+inferConst (IntToCharAST _)      = return $ FuncT (PrimT IntPrim) (PrimT CharPrim)
+inferConst (CharToIntAST _)      = return $ FuncT (PrimT CharPrim) (PrimT IntPrim)
+
+inferConst (ShowConstAST _)      = do
+    tvar <- genTVar [showClass]
+    return $ FuncT tvar (ListT (PrimT CharPrim))
