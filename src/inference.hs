@@ -1,6 +1,6 @@
 module Inference
     (
-      --typeBonsai
+      infer
     ) where
 
 import Ast
@@ -104,6 +104,7 @@ data TypeError = LinearTypeError Type UtilData
                | TypeRedefinitionError TypeId UtilData
                | TermConstructorRedefinitionError TypeId UtilData
                | UndefinedTermConstructorError TypeId UtilData
+               | TermConstructorPatternMisuseError TypeId UtilData
                | TypeClassMismatchError Type Type UtilData
                | TypeMismatchError Type Type UtilData
                | MatchPatternMismatchError Type PatternAST UtilData
@@ -119,22 +120,23 @@ type InferT a = ExceptT TypeError (State InferState) a
 
 initState = InferState { next = 0, constraints = [], sigma = Set.empty }
 
-runInferT :: InferT (Substitution, Type) -> Maybe String
+runInferT :: InferT Substitution -> Maybe String
 runInferT m = case evalState (runExceptT m) initState of
     (Left err) -> Just $ evalError err
     (Right _)  -> Nothing
 
 evalError :: TypeError -> String
-evalError (LinearTypeError typ utilData)                     = formatErr ("instance of unique type '" ++ show typ ++ "' cannot be used more than once") utilData
-evalError (VariableScopeError varId utilData)                = formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData
-evalError (VariableRedefinitionError varId utilData)         = formatErr ("global variable '" ++ varName varId ++ "' cannot be redefined globally") utilData
-evalError (TypeRedefinitionError typeId utilData)            = formatErr ("algebraic type '" ++ typeName typeId ++  "' cannot be redefined") utilData
-evalError (TermConstructorRedefinitionError typeId utilData) = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be redefined") utilData
-evalError (UndefinedTermConstructorError typeId utilData)    = formatErr ("unknown termconstructor '" ++  typeName typeId ++ "'") utilData
-evalError (TypeClassMismatchError typ1 typ2 utilData)        = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
-evalError (TypeMismatchError typ1 typ2 utilData)             = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
-evalError (MatchPatternMismatchError typ pat utilData)       = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
-evalError (LengthMismatchError utilData)                     = formatErr ("cannot match types of different numbers of immediates") utilData
+evalError (LinearTypeError typ utilData)                      = formatErr ("instance of unique type '" ++ show typ ++ "' cannot be used more than once") utilData
+evalError (VariableScopeError varId utilData)                 = formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData
+evalError (VariableRedefinitionError varId utilData)          = formatErr ("global variable '" ++ varName varId ++ "' cannot be redefined globally") utilData
+evalError (TypeRedefinitionError typeId utilData)             = formatErr ("algebraic type '" ++ typeName typeId ++  "' cannot be redefined") utilData
+evalError (TermConstructorRedefinitionError typeId utilData)  = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be redefined") utilData
+evalError (UndefinedTermConstructorError typeId utilData)     = formatErr ("unknown termconstructor '" ++  typeName typeId ++ "'") utilData
+evalError (TermConstructorPatternMisuseError typeId utilData) = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be used as a constant") utilData
+evalError (TypeClassMismatchError typ1 typ2 utilData)         = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
+evalError (TypeMismatchError typ1 typ2 utilData)              = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
+evalError (MatchPatternMismatchError typ pat utilData)        = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
+evalError (LengthMismatchError utilData)                      = formatErr ("cannot match types of different numbers of immediates") utilData
 
 genTVar :: [TypeClass] -> InferT Type
 genTVar classes = do
@@ -338,6 +340,39 @@ gen env typ = ForAll vars typ
     where
         vars = Set.toList (ftv typ `Set.difference` ftv env)
 
+infer :: FilePath -> ProgAST -> Maybe String
+infer path ast =
+    case runInferT (inferProg ast initEnv) of
+        Nothing  -> Nothing
+        Just msg -> Just (path ++ ":" ++ msg)
+    where
+        stdin'  = (VarId "stdin" Untyped, ForAll [] (UniqT (PrimT FilePrim) True))
+        stdout' = (VarId "stdout" Untyped, ForAll [] (UniqT (PrimT FilePrim) True))
+        initEnv = TypeEnv $ Map.fromList [stdin', stdout']
+
+inferProg :: ProgAST -> TypeEnv -> InferT Substitution -- TODO: typeDcl and main!
+inferProg (ProgAST dt dv utilData) env = do
+    env'  <- inferVarDclLazily dv env
+    _     <- inferVarDcl dv env'
+    unifyAll
+
+inferVarDclLazily :: VarDclAST -> TypeEnv -> InferT TypeEnv
+inferVarDclLazily EpsVarDclAST env = return env
+inferVarDclLazily (VarDclAST (UntypedVarAST varId _) _ dv utilData) env = do 
+    tvar <- genTVar []
+    inferVarDclLazily dv (env `except` (varId, ForAll [] tvar))
+
+inferVarDclLazily (VarDclAST (TypedVarAST varId s _) _ dv utilData) env = error "not yet implemented!" -- TODO: annotations
+
+inferVarDcl :: VarDclAST -> TypeEnv -> InferT TypeEnv
+inferVarDcl EpsVarDclAST env = return env
+inferVarDcl (VarDclAST (UntypedVarAST varId _) expr dv utilData) env = do
+    (typ, _) <- inferExpr expr env
+    let scheme = gen env typ
+    inferVarDcl dv (env `except` (varId, scheme))
+
+inferVarDcl (VarDclAST (TypedVarAST varId s _) expr dv utilData) env = error "not yet implemented!" -- TODO: annotations  
+
 inferExpr :: ExprAST -> TypeEnv -> InferT (Type, [Binding])
 inferExpr (VarExprAST varId utilData) (TypeEnv env) =
     case Map.lookup varId env of
@@ -442,7 +477,7 @@ inferCaseBranches ((PredWildAST _, expr):branches) env = do
 inferCaseBranches ((PredExprAST expr1 utilData, expr2):branches) env = do
     (typ1, binds) <- inferExpr expr1 env
     let env' = applyBindings env binds
-    (typ2, _) <- inferExpr expr2 env
+    (typ2, _) <- inferExpr expr2 env'
     addConstraint typ1 (PrimT BoolPrim) utilData
     typ2s <- inferCaseBranches branches env
     return (typ2:typ2s)
@@ -450,10 +485,10 @@ inferCaseBranches ((PredExprAST expr1 utilData, expr2):branches) env = do
 inferMatchBranches :: Type -> [(PatternAST, ExprAST)] -> TypeEnv -> InferT [Type]
 inferMatchBranches _ [] _ = return []
 inferMatchBranches typ1 ((pat, expr):branches) env = do
-    binds <- match typ1 pat
+    (typ1', binds) <- match typ1 pat
     let env' = applyBindings env binds
     (typ2, _) <- inferExpr expr env'
-    typs2 <- inferMatchBranches typ1 branches env
+    typs2 <- inferMatchBranches typ1' branches env
     return (typ2:typs2)
 
 binaryFun :: [TypeClass] -> InferT Type
@@ -480,10 +515,21 @@ inferConst (EqualsConstAST _) = binaryFun [eqClass]
 
 inferConst (NotConstAST _) = return $ FuncT (PrimT BoolPrim) (PrimT BoolPrim)
 
-inferConst (GreaterConstAST _)        = binaryFun [ordClass]
-inferConst (LessConstAST _)           = binaryFun [ordClass]
-inferConst (GreaterOrEqualConstAST _) = binaryFun [ordClass]
-inferConst (LessOrEqualConstAST _)    = binaryFun [ordClass]
+inferConst (GreaterConstAST _) = do
+    tvar <- genTVar [ordClass]
+    return $ FuncT tvar (FuncT tvar (PrimT BoolPrim))
+
+inferConst (LessConstAST _) = do
+    tvar <- genTVar [ordClass]
+    return $ FuncT tvar (FuncT tvar (PrimT BoolPrim)) 
+
+inferConst (GreaterOrEqualConstAST _) = do
+    tvar <- genTVar [ordClass]
+    return $ FuncT tvar (FuncT tvar (PrimT BoolPrim))
+
+inferConst (LessOrEqualConstAST _) = do
+    tvar <- genTVar [ordClass]
+    return $ FuncT tvar (FuncT tvar (PrimT BoolPrim)) 
 
 inferConst (AppenConstAST _) = do
     tvar <- genTVar []
@@ -518,15 +564,73 @@ inferConst (ShowConstAST _)      = do
     tvar <- genTVar [showClass]
     return $ FuncT tvar (ListT (PrimT CharPrim))
 
-match :: Type -> PatternAST -> InferT [Binding]
-match typ (VarPatternAST varId _) = return [(varId, ForAll [] typ)]
+inferPat :: PatternAST -> InferT (Type, [Binding])
+inferPat (ConstPatternAST c _) = do
+    typ <- inferConst c
+    return (typ, [])
 
-match _ (WildPatternAST _) = return []
+inferPat (VarPatternAST varId _) = do
+    tvar <- genTVar []
+    return (tvar, [(varId, ForAll [] tvar)])
 
-match (PrimT (IntPrim)) (ConstPatternAST (IntConstAST _ _) _)     = return []
-match (PrimT (FloatPrim)) (ConstPatternAST (FloatConstAST _ _) _) = return []
-match (PrimT (BoolPrim)) (ConstPatternAST (BoolConstAST _ _) _)   = return []
-match (PrimT (CharPrim)) (ConstPatternAST (CharConstAST _ _) _)   = return []
+inferPat (WildPatternAST _) = do
+    tvar <- genTVar []
+    return (tvar, [])
+
+inferPat (TypePatternAST typeId utilData) = do
+    state <- get
+    case getTermConstructor (sigma state) typeId of
+        Nothing -> throwError $ UndefinedTermConstructorError typeId utilData
+        (Just (_, _, typ@(AlgeT name' _))) -> return (typ, [])
+        (Just _) -> throwError $ TermConstructorPatternMisuseError typeId utilData
+
+inferPat (TypeConsPatternAST typeId pat' utilData) = do
+    state <- get
+    case getTermConstructor (sigma state) typeId of
+        Nothing -> throwError $ UndefinedTermConstructorError typeId utilData
+        (Just (_, _, typ@(AlgeT name' _))) -> return (typ, []) -- TODO: recursive call!
+        (Just _) -> throwError $ TermConstructorPatternMisuseError typeId utilData
+
+inferPat (ListPatternAST [] _) = do
+    tvar <- genTVar []
+    return (ListT tvar, [])
+
+inferPat (ListPatternAST (pat:pats) utilData) = do
+     (typ, binds) <- inferPat pat
+     let typs = List.take (length pats) (repeat typ)
+     (_, binds') <- matchMultiple typs pats utilData
+     return (ListT typ, binds ++ binds')
+
+inferPat (TuplePatternAST pats _) = do
+    (typs, binds) <- inferPats pats
+    return (TuplT typs, binds)
+
+inferPat (DecompPatternAST pat varId _) = do
+    (typ, binds) <- inferPat pat
+    return (ListT typ, [(varId, ForAll [] typ)])
+
+inferPats :: [PatternAST] -> InferT ([Type], [Binding])
+inferPats [] = return ([], [])
+inferPats (pat:pats) = do
+    (typ, binds)   <- inferPat pat
+    (typs, binds') <- inferPats pats
+    return (typ:typs, binds ++ binds')
+
+match :: Type -> PatternAST -> InferT (Type, [Binding])
+match typ (VarPatternAST varId _) = return (typ, [(varId, ForAll [] typ)])
+
+match typ (WildPatternAST _) = return (typ, [])
+
+match typ@(PolyT (TVar _ classes)) pat = do
+    (typ', binds) <- inferPat pat
+    if List.foldr ((&&) . (checkClass typ')) True classes
+        then return (typ', binds)
+        else throwError $ MatchPatternMismatchError typ pat (getUtilDataPat pat)
+
+match typ@(PrimT (IntPrim)) (ConstPatternAST (IntConstAST _ _) _)     = return (typ, [])
+match typ@(PrimT (FloatPrim)) (ConstPatternAST (FloatConstAST _ _) _) = return (typ, [])
+match typ@(PrimT (BoolPrim)) (ConstPatternAST (BoolConstAST _ _) _)   = return (typ, [])
+match typ@(PrimT (CharPrim)) (ConstPatternAST (CharConstAST _ _) _)   = return (typ, [])
 
 match typ@(AlgeT name _) pat@(TypePatternAST typeId utilData) = do
     state <- get
@@ -534,13 +638,13 @@ match typ@(AlgeT name _) pat@(TypePatternAST typeId utilData) = do
         Nothing -> throwError $ UndefinedTermConstructorError typeId utilData
         (Just (_, _, AlgeT name' _)) ->
             if name' == name
-                then return []
+                then return (typ, [])
                 else throwError $ MatchPatternMismatchError typ pat utilData
         (Just _) -> throwError $ MatchPatternMismatchError typ pat utilData
 
-match (ListT typ) (DecompPatternAST pat' varId _) = do
-    binds <- match typ pat'
-    return ((varId, ForAll [] (ListT typ)):binds)
+match (ListT typ') (DecompPatternAST pat' varId _) = do
+    (typ'', binds) <- match typ' pat'
+    return (ListT typ'', ((varId, ForAll [] (ListT typ'')):binds))
 
 match typ@(AlgeT name typs) pat@(TypeConsPatternAST typeId pat' utilData) = do
     state <- get
@@ -548,23 +652,29 @@ match typ@(AlgeT name typs) pat@(TypeConsPatternAST typeId pat' utilData) = do
         Nothing             -> throwError $ UndefinedTermConstructorError typeId utilData
         Just (_, _, FuncT s (AlgeT name' _)) ->
             if name' == name
-                then return [] -- TODO: recursive call!!
+                then return (typ, []) -- TODO: recursive call!!
                 else throwError $ MatchPatternMismatchError typ pat utilData
         Just _ -> throwError $ MatchPatternMismatchError typ pat utilData
 
-match typ@(TuplT typs) pat@(TuplePatternAST ps utilData) = matchMultiple typs ps utilData
+match typ@(TuplT typs) pat@(TuplePatternAST ps utilData) = do 
+    (typs, binds) <- matchMultiple typs ps utilData
+    return (TuplT typs, binds)
 
-match (ListT typ') (ListPatternAST ps utilData) = matchMultiple typs' ps utilData
+match typ@(ListT typ') (ListPatternAST ps utilData) = do 
+    (typs'', binds) <- matchMultiple typs' ps utilData
+    case typs'' of
+        []        -> return (typ, binds)
+        (typ'':_) -> return (ListT typ'', binds)
     where
         typs' = List.take (length ps) (repeat typ')
 
 match typ pat = throwError $ MatchPatternMismatchError typ pat (getUtilDataPat pat)
 
-matchMultiple :: [Type] -> [PatternAST] -> UtilData -> InferT [Binding]
-matchMultiple [] [] _       = return []
+matchMultiple :: [Type] -> [PatternAST] -> UtilData -> InferT ([Type], [Binding])
+matchMultiple [] [] _       = return ([], [])
 matchMultiple [] _ utilData = throwError $ LengthMismatchError utilData
 matchMultiple _ [] utilData = throwError $ LengthMismatchError utilData
 matchMultiple (t:ts) (p:ps) utilData = do
-    binds  <- match t p
-    binds' <- matchMultiple ts ps utilData
-    return $ binds ++ binds'
+    (typ, binds)   <- match t p
+    (typs, binds') <- matchMultiple ts ps utilData
+    return $ (typ:typs, binds ++ binds')

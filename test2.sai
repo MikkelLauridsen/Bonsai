@@ -3,58 +3,40 @@
 
 
 
+var x = 10
 
-type Test1 = {
-    | Test1a Int
-    | Test1b (Test2, Test1)
-}
 
-type Test2 = {
-    | Test2a (Float -> Int)
-}
+var y = 10 * x
 
-type Maybe<a> = {
-    | Nothing
-    | Just a
-}
-
-type Map<k,v> = {
-    | Node (k, v, Map, Map)
-    | Nil
-}
-
-type Test7<k,v> = {
-    | Nab (k, k, v, v)
-}
-
-type Wat = {
-    | Nob Int
-    | Nub (Wat, Int)
-}
-
-var main = sys::(System*) => {
-    match read stdin {
-        | (?, 'y', ?) -> write '1' stdout
-        | (?, x, ?)   -> write tegn stdout
+var max = a => {
+    b => {
+        case {
+            | a > b -> a
+            | ?     -> b
+        }
     }
 }
 
-var test3 = Test2a (y::Float => { 10 })
+var map = fun => {
+    lst => {
+        match lst {
+            | [] -> []
+            | (x:xs) -> ((fun x) : (map fun xs))
+        }
+    }
+}
 
-var test4 = Test1b (Test2a (y::Float => { 20 }), Test1a 24)
+var main = sys => {
+    let fun = y => {
+        case {
+            | y <= 1 -> 1
+            | ?      -> fun (y - 1)
+        }
+    } in (writes (show (fun true)) stdout)
+}
 
-var test5 = Just 10
-
-var test6::Map<[Char], Int> = Node ("woop", 54, Nil, Node ("nip", 5, Nil, Nil))
-
-var test8 = Nab (4, 5, 'c', 'g')
-
-var test9 = Nub ((Nob 5), 6)
-
-var tegn = 'f'
-
-var writes::(String -> (File* -> (Bool, File*))) = s::String => {
-    f::File* => {
+var writes = s => {
+    f => {
         match s {
             | []     -> (true, f)
             | (c:cs) -> 
