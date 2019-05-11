@@ -7,6 +7,9 @@ import Ast
 import Data.Map.Strict as Map
 import Data.Set as Set
 import Data.List as List
+import Control.Monad.Except
+import Control.Monad.State
+import Prettifier
 
 data TypeClass = TClass String (Type -> Bool)
 
@@ -50,10 +53,10 @@ data TypeVar = TVar String [TypeClass] deriving (Eq, Ord)
 data Scheme = ForAll [TypeVar] Type  
 
 -- type-environment type
-newtype TypeEnv = TypeEnv (Map VarId Scheme)
+newtype TypeEnv = TypeEnv (Map String Scheme)
 
 -- type-environment binding format
-type Binding = (VarId, Scheme)
+type Binding = (String, Scheme)
 
 class Substitutable a where
     ftv :: a -> Set TypeVar
@@ -91,8 +94,46 @@ instance Substitutable TypeEnv where
 
     substitute sub (TypeEnv env) = TypeEnv (Map.map (substitute sub) env)
 
-genTVarName :: Integer -> String
-genTVarName count = ".a" ++ show count
+data TypeError = LinearTypeError Type UtilData
+               | VariableScopeError VarId UtilData
+               | VariableRedefinitionError VarId UtilData
+               | TypeRedefinitionError TypeId UtilData
+               | TermConstructorRedefinitionError TypeId UtilData
+               | TypeDeclarationConflictError TypeId UtilData
+               | TypeClassMismatchError Type Type UtilData
+               | TypeMismatchError Type Type UtilData
+               | MatchPatternMismatchError Type PatternAST UtilData
+
+data InferState = InferState { 
+                               next        :: Integer
+                             , constraints :: [Constraint]
+                             , sigma       :: Sig
+                             }
+
+type InferT a = ExceptT TypeError (State InferState) a
+
+initState = InferState { next = 0, constraints = [], sigma = Set.empty }
+
+runInferT :: InferT (Substitution, Type) -> Maybe String
+runInferT m = case evalState (runExceptT m) initState of
+    (Left err) -> Just $ evalError err
+    (Right _)  -> Nothing
+
+evalError :: TypeError -> String
+evalError (LinearTypeError typ utilData)                     = formatErr ("instance of unique type '" ++ show typ ++ "' cannot be used more than once") utilData
+evalError (VariableScopeError varId utilData)                = formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData
+evalError (VariableRedefinitionError varId utilData)         = formatErr ("global variable '" ++ varName varId ++ "' cannot be redefined globally") utilData
+evalError (TypeRedefinitionError typeId utilData)            = formatErr ("algebraic type '" ++ typeName typeId ++  "' cannot be redefined") utilData
+evalError (TermConstructorRedefinitionError typeId utilData) = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be redefined") utilData
+evalError (TypeClassMismatchError typ1 typ2 utilData)        = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
+evalError (TypeMismatchError typ1 typ2 utilData)             = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
+evalError (MatchPatternMismatchError typ pat utilData)       = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
+
+genTVar :: [TypeClass] -> InferT Type
+genTVar classes = do
+    state <- get
+    put state{ next = next state + 1 }
+    return $ PolyT (TVar (".a" ++ show (next state)) classes)
 
 -- error message creation
 
@@ -124,73 +165,82 @@ has sigma t =
 
 -- unification
 
-unifyAll :: [Constraint] -> Sig -> Either String Substitution
-unifyAll [] _ = Right Map.empty
-unifyAll ((typ1, typ2, utilData):c') sigma =
-    case unify typ1 typ2 c' utilData sigma of
-        (Left msg)          -> Left msg
-        (Right (sub, c''))  ->
-            case unifyAll c'' sigma of
-                err@(Left _) -> err
-                (Right sub') -> Right (sub `Map.union` sub') 
+unifyAll :: InferT Substitution
+unifyAll = do
+    state <- get
+    case constraints state of
+        [] -> return Map.empty
+        ((typ1, typ2, utilData):c') -> do
+            put state{ constraints = c' }
+            sub  <- unify typ1 typ2 utilData
+            sub' <- unifyAll
+            return $ sub `Map.union` sub'
 
-unify :: Type -> Type -> [Constraint] -> UtilData -> Sig -> Either String (Substitution, [Constraint])
-unify typ1@(PrimT prim1) typ2@(PrimT prim2) constraints utilData _ =
+unify :: Type -> Type -> UtilData -> InferT Substitution
+unify typ1@(PrimT prim1) typ2@(PrimT prim2) utilData =
     if prim1 == prim2
-        then Right (Map.empty, constraints)
-        else Left (formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type is '" ++ show typ2 ++ "'") utilData)
+        then return Map.empty
+        else throwError $ TypeMismatchError typ1 typ2 utilData
 
-unify typ1@(PolyT var@(TVar _ classes)) typ2 constraints utilData _ =
+unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData =
     if List.foldr ((&&) . (checkClass typ2)) True classes
-        then Right (sub, constraints')
-        else Left (formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData)
+        then do 
+            state <- get
+            put state{ constraints = List.map (substituteConstraint) (constraints state) }
+            return sub
+        else throwError $ TypeClassMismatchError typ1 typ2 utilData
     where
         sub = Map.singleton var typ2
         substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
-        constraints' = List.map (substituteConstraint) constraints
 
-unify typ1 typ2@(PolyT var@(TVar _ classes)) constraints utilData _ =
+unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData =
     if List.foldr ((&&) . (checkClass typ1)) True classes
-        then Right (sub, constraints')
-        else Left (formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData)
+        then do 
+            state <- get
+            put state{ constraints = List.map (substituteConstraint) (constraints state) }
+            return sub
+        else throwError $ TypeClassMismatchError typ2 typ1 utilData
     where
         sub = Map.singleton var typ1
         substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
-        constraints' = List.map (substituteConstraint) constraints
 
-unify (FuncT s1 s2) (FuncT t1 t2) constraints utilData _ = Right (Map.empty, constraints')
-    where
-        constraints' = constraints ++ [(s1, t1, utilData), (s2, t2, utilData)]
+unify (FuncT s1 s2) (FuncT t1 t2) utilData = do
+    state <- get
+    put state{ constraints = (constraints state) ++ [(s1, t1, utilData), (s2, t2, utilData)] }
+    return Map.empty
 
-unify typ1@(TuplT typs1) typ2@(TuplT typs2) constraints utilData _ =
-    if length typs1 == length typs2
-        then Right (Map.empty, constraints')
-        else Left (formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData)
-    where
-        constraints' = constraints ++ [(typ1', typ2', utilData) | typ1' <- typs1, typ2' <- typs2]
+unify typ1@(TuplT typs1) typ2@(TuplT typs2) utilData =
+    if length typs1 /= length typs2
+        then throwError $ TypeMismatchError typ1 typ2 utilData
+        else do
+            state <- get
+            put state{ constraints = (constraints state) ++ [(typ1', typ2', utilData) | typ1' <- typs1, typ2' <- typs2] }
+            return Map.empty
 
-unify (ListT typ1) (ListT typ2) constraints utilData _ = Right (Map.empty, constraints')
-    where
-        constraints' = constraints ++ [(typ1, typ2, utilData)]
+unify (ListT typ1) (ListT typ2) utilData = do
+    state <- get
+    put state{ constraints = (constraints state) ++ [(typ1, typ2, utilData)] }
+    return Map.empty
 
-unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) constraints utilData sigma =
-    if name1 == name2 && sigma `has` name1 && length typs1 == length typs2
-        then Right (Map.empty, constraints')
-        else Left (formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData)
-    where
-        constraints' = constraints ++ [(typ1', typ2', utilData) | typ1' <- typs1, typ2' <- typs2]
+unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData = do
+    state <- get
+    if name1 == name2  && (sigma state) `has` name1 && length typs1 == length typs2
+        then do
+            put state{ constraints = (constraints state) ++ [(typ1', typ2', utilData) | typ1' <- typs1, typ2' <- typs2] }
+            return Map.empty
+        else throwError $ TypeMismatchError typ1 typ2 utilData
 
-unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) constraints utilData _ =
+unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData =
     case (valid1, valid2) of
-        (False, False) -> Left (formatErr ("unique types '" ++ show typ1 ++ "' and '" ++ show typ2 ++ "'cannot be used twice") utilData)
-        (False, True)  -> Left (formatErr ("unique type '" ++ show typ1 ++ "' cannot be used twice") utilData)
-        (True, False)  -> Left (formatErr ("unique type '" ++ show typ2 ++ "' cannot be used twice") utilData)
-        _              -> Right (Map.empty, constraints')
-    where
-        constraints' = constraints ++ [(typ1', typ2', utilData)]
+        (False, True)  -> throwError $ LinearTypeError typ1 utilData
+        (True, False)  -> throwError $ LinearTypeError typ2 utilData
+        _              -> do
+            state <- get
+            put state{ constraints = constraints state ++ [(typ1', typ2', utilData)] }
+            return Map.empty
 
 -- catch all
-unify typ1 typ2 _ utilData _ = Left (formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData)
+unify typ1 typ2 utilData = throwError $ TypeMismatchError typ1 typ2 utilData
 
 checkClass :: Type -> TypeClass -> Bool
 checkClass typ (TClass _ fun) = fun typ
@@ -245,3 +295,15 @@ biFun _                          = False
 
 -- constraint rules begin
 
+proj :: Scheme -> InferT Type
+proj (ForAll vars typ) = do
+    vars' <- mapM fresh vars
+    let s = Map.fromList (zip vars vars')
+    return $ substitute s typ
+    where
+        fresh = \(TVar _ classes) -> genTVar classes
+
+gen :: TypeEnv -> Type -> Scheme -- http://dev.stephendiehl.com/fun/006_hindley_milner.html
+gen env typ = ForAll vars typ
+    where
+        vars = Set.toList (ftv typ `Set.difference` ftv env)
