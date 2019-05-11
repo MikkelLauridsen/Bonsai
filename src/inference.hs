@@ -10,6 +10,7 @@ import Data.List as List
 import Control.Monad.Except
 import Control.Monad.State
 import Prettifier
+import Actions
 
 data TypeClass = TClass String (Type -> Bool)
 
@@ -106,6 +107,7 @@ data TypeError = LinearTypeError Type UtilData
                | TypeClassMismatchError Type Type UtilData
                | TypeMismatchError Type Type UtilData
                | MatchPatternMismatchError Type PatternAST UtilData
+               | LengthMismatchError UtilData
 
 data InferState = InferState { 
                                next        :: Integer
@@ -132,6 +134,7 @@ evalError (UndefinedTermConstructorError typeId utilData)    = formatErr ("unkno
 evalError (TypeClassMismatchError typ1 typ2 utilData)        = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
 evalError (TypeMismatchError typ1 typ2 utilData)             = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
 evalError (MatchPatternMismatchError typ pat utilData)       = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
+evalError (LengthMismatchError utilData)                     = formatErr ("cannot match types of different numbers of immediates") utilData
 
 genTVar :: [TypeClass] -> InferT Type
 genTVar classes = do
@@ -172,6 +175,9 @@ getSignature sigma t =
     case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
         Nothing            -> Nothing
         (Just (_, _, typ)) -> Just typ
+        
+getTermConstructor :: Sig -> TypeId -> Maybe TermConstructor
+getTermConstructor sigma t = find (\(t', _, _) -> t' == t) (Set.toList sigma)
         
 -- unification
 
@@ -363,6 +369,92 @@ inferExpr (LambdaExprAST (UntypedVarAST varId _) expr _) env = do
     (typ, bindings)  <- inferExpr expr env'
     return (FuncT tvar typ, bindings)
 
+inferExpr (FunAppExprAST expr1 expr2 utilData) env = do
+    (typ1, binds)  <- inferExpr expr1 env
+    let env' = applyBindings env binds
+    (typ2, binds') <- inferExpr expr2 env'
+    tvar <- genTVar []
+    addConstraint typ1 (FuncT typ2 tvar) utilData
+    return (tvar, binds ++ binds')
+
+inferExpr (TupleExprAST exprs _) env = do
+    (typs, binds) <- inferExprs exprs env
+    return (TuplT typs, binds)
+
+inferExpr (ListExprAST exprs utilData) env = do
+    (typs, binds) <- inferExprs exprs env
+    case typs of
+        [] -> do
+            tvar <- genTVar []
+            return (ListT tvar, binds)
+        (typ:typs') -> do 
+            state <- get
+            put state{ constraints = constraints state ++ [(typ, typ', utilData) | typ' <- typs'] }
+            return (ListT typ, binds) 
+
+inferExpr (LetInExprAST (UntypedVarAST varId _) expr1 expr2 utilData) env = do
+    tvar <- genTVar []
+    let env' = env `except` (varId, ForAll [] tvar)
+    (typ1, binds) <- inferExpr expr1 env'
+    let env'' = applyBindings env' binds
+    let scheme = gen env'' typ1
+    (typ2, binds') <- inferExpr expr2 (env'' `except` (varId, scheme))
+    return (typ2, binds ++ binds')
+
+inferExpr (CaseExprAST branches utilData) env = do
+    typs <- inferCaseBranches branches env
+    case typs of
+        [] -> error "a case expression must have at least one branch" -- should not happen
+        (typ:typs') -> do
+            state <- get
+            put state{ constraints = constraints state ++ [(typ, typ', utilData) | typ' <- typs'] }
+            return (typ, [])
+
+inferExpr (MatchExprAST expr branches utilData) env = do
+    (typ1, binds) <- inferExpr expr env
+    let env' = applyBindings env binds
+    typ2s <- inferMatchBranches typ1 branches env'
+    case typ2s of
+        [] -> error "a match expression must have at least one branch" -- should not happen
+        (typ2:typ2s') -> do 
+            state <- get
+            put state{ constraints = constraints state ++ [(typ2, typ2', utilData) | typ2' <- typ2s'] }
+            return (typ2, binds)
+
+inferExprs :: [ExprAST] -> TypeEnv -> InferT ([Type], [Binding])
+inferExprs [] _ = return ([], [])
+inferExprs (e:es) env = do
+    (typ, binds)   <- inferExpr e env
+    let env' = applyBindings env binds
+    (typs, binds') <- inferExprs es env
+    return (typ:typs, binds ++ binds')
+
+applyBindings :: TypeEnv -> [Binding] -> TypeEnv
+applyBindings env binds = List.foldr (flip except) env binds
+
+inferCaseBranches :: [(PredAST, ExprAST)] -> TypeEnv -> InferT [Type]
+inferCaseBranches [] _ = return []
+inferCaseBranches ((PredWildAST _, expr):branches) env = do
+    (typ, _) <- inferExpr expr env
+    typs <- inferCaseBranches branches env
+    return (typ:typs)
+
+inferCaseBranches ((PredExprAST expr1 utilData, expr2):branches) env = do
+    (typ1, binds) <- inferExpr expr1 env
+    let env' = applyBindings env binds
+    (typ2, _) <- inferExpr expr2 env
+    addConstraint typ1 (PrimT BoolPrim) utilData
+    typ2s <- inferCaseBranches branches env
+    return (typ2:typ2s)
+
+inferMatchBranches :: Type -> [(PatternAST, ExprAST)] -> TypeEnv -> InferT [Type]
+inferMatchBranches _ [] _ = return []
+inferMatchBranches typ1 ((pat, expr):branches) env = do
+    binds <- match typ1 pat
+    let env' = applyBindings env binds
+    (typ2, _) <- inferExpr expr env'
+    typs2 <- inferMatchBranches typ1 branches env
+    return (typ2:typs2)
 
 binaryFun :: [TypeClass] -> InferT Type
 binaryFun classes = do
@@ -425,3 +517,54 @@ inferConst (CharToIntAST _)      = return $ FuncT (PrimT CharPrim) (PrimT IntPri
 inferConst (ShowConstAST _)      = do
     tvar <- genTVar [showClass]
     return $ FuncT tvar (ListT (PrimT CharPrim))
+
+match :: Type -> PatternAST -> InferT [Binding]
+match typ (VarPatternAST varId _) = return [(varId, ForAll [] typ)]
+
+match _ (WildPatternAST _) = return []
+
+match (PrimT (IntPrim)) (ConstPatternAST (IntConstAST _ _) _)     = return []
+match (PrimT (FloatPrim)) (ConstPatternAST (FloatConstAST _ _) _) = return []
+match (PrimT (BoolPrim)) (ConstPatternAST (BoolConstAST _ _) _)   = return []
+match (PrimT (CharPrim)) (ConstPatternAST (CharConstAST _ _) _)   = return []
+
+match typ@(AlgeT name _) pat@(TypePatternAST typeId utilData) = do
+    state <- get
+    case getTermConstructor (sigma state) typeId of
+        Nothing -> throwError $ UndefinedTermConstructorError typeId utilData
+        (Just (_, _, AlgeT name' _)) ->
+            if name' == name
+                then return []
+                else throwError $ MatchPatternMismatchError typ pat utilData
+        (Just _) -> throwError $ MatchPatternMismatchError typ pat utilData
+
+match (ListT typ) (DecompPatternAST pat' varId _) = do
+    binds <- match typ pat'
+    return ((varId, ForAll [] (ListT typ)):binds)
+
+match typ@(AlgeT name typs) pat@(TypeConsPatternAST typeId pat' utilData) = do
+    state <- get
+    case getTermConstructor (sigma state) typeId of
+        Nothing             -> throwError $ UndefinedTermConstructorError typeId utilData
+        Just (_, _, FuncT s (AlgeT name' _)) ->
+            if name' == name
+                then return [] -- TODO: recursive call!!
+                else throwError $ MatchPatternMismatchError typ pat utilData
+        Just _ -> throwError $ MatchPatternMismatchError typ pat utilData
+
+match typ@(TuplT typs) pat@(TuplePatternAST ps utilData) = matchMultiple typs ps utilData
+
+match (ListT typ') (ListPatternAST ps utilData) = matchMultiple typs' ps utilData
+    where
+        typs' = List.take (length ps) (repeat typ')
+
+match typ pat = throwError $ MatchPatternMismatchError typ pat (getUtilDataPat pat)
+
+matchMultiple :: [Type] -> [PatternAST] -> UtilData -> InferT [Binding]
+matchMultiple [] [] _       = return []
+matchMultiple [] _ utilData = throwError $ LengthMismatchError utilData
+matchMultiple _ [] utilData = throwError $ LengthMismatchError utilData
+matchMultiple (t:ts) (p:ps) utilData = do
+    binds  <- match t p
+    binds' <- matchMultiple ts ps utilData
+    return $ binds ++ binds'
