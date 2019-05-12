@@ -30,11 +30,11 @@ testOrdValuesEQ = TestCase $ assertEqual
     (show(compare(ConstValue (IntConstAST 1 (UtilData (Typed (PrimType IntPrim)) (1, 2, 3) "source")))
     (ConstValue (IntConstAST 1 (UtilData (Typed (PrimType IntPrim)) (1, 2, 3) "source")))))
 
---testMatchTuple = TestCase $ assertEqual
+--testMatchTuple = TestCase $ assertBool
 --    "Should be true"
---    (Right (Bindings (VarId, Values)))
---    (match (TupleValue [((ConstValue (IntConstAST 1 (UtilData (Untyped (1, 1, 1) "source")))]))
---    (TuplePatternAST [(ConstPatternAST (IntConstAST 1 (Untyped (1, 1, 1) "source")) (Untyped (1, 1, 1) "source")  )]))
+--    (Right (Bindings (VarId, Values))) ==
+--    (match (TupleValue [((ConstValue (IntConstAST 1 utilDataHolder), (TerValue (TypeId "typeName"))]))
+--    (TuplePatternAST [(ConstPatternAST (IntConstAST 1 utilDataHolder) utilDataHolder), (TypePatternAST())]))
 
 testTest = TestCase $ assertBool
     "sdf"
