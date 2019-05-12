@@ -394,11 +394,11 @@ inferTypeDclLazily (TypePolyDclAST name polys _ dt utilData) lsigma =
 inferTypeDcl :: TypeDclAST -> LazySig -> InferT ()
 inferTypeDcl EpsTypeDclAST _ = return ()
 inferTypeDcl (TypeDclAST name cons dt _) lsigma = do
-    evalCons cons name [] lsigma
+    evalCons cons name [] Map.empty lsigma
     inferTypeDcl dt lsigma
 
 inferTypeDcl (TypePolyDclAST name polys cons dt _) lsigma = do
-    evalCons cons name vars lsigma
+    evalCons cons name vars Map.empty lsigma
     inferTypeDcl dt lsigma
     where
         vars = List.map varName polys
@@ -415,9 +415,9 @@ mapVars (v:vs) = do
     tvars <- mapVars vs
     return (tvar:tvars)
 
-evalCons :: [ConsAST] -> TypeId -> [String] -> LazySig -> InferT ()
-evalCons [] _ _ _ = return ()
-evalCons (tc:tcs') memberName vars lsigma = do
+evalCons :: [ConsAST] -> TypeId -> [String] -> Map VarId Type -> LazySig -> InferT (Map VarId Type)
+evalCons [] _ _ binds _ = return binds
+evalCons (tc:tcs') memberName vars binds lsigma = do
     state <- get
     memberTyp <- getAlgebraicType memberName vars
     case tc of
@@ -426,14 +426,14 @@ evalCons (tc:tcs') memberName vars lsigma = do
                 then throwError $ TermConstructorRedefinitionError name utilData
                 else do
                     put state{ sigma = Set.insert (name, memberTyp, memberTyp) (sigma state) }
-                    evalCons tcs' memberName vars lsigma
+                    evalCons tcs' memberName vars binds lsigma
         (DoubleConsAST name s utilData) ->
             if (sigma state) `has` name
                 then throwError $ TermConstructorRedefinitionError name utilData
                 else do
-                    (sig, _) <- buildSignature s memberName vars Map.empty lsigma
-                    put state{ sigma = Set.insert (name, memberTyp, sig)  (sigma state) }
-                    evalCons tcs' memberName vars lsigma
+                    (sig, binds') <- buildSignature s memberName vars binds lsigma
+                    put state{ sigma = Set.insert (name, memberTyp, FuncT sig memberTyp)  (sigma state) }
+                    evalCons tcs' memberName vars binds' lsigma
 
 buildSignature :: CompTypeAST -> TypeId -> [String] -> Map VarId Type -> LazySig -> InferT (Type, Map VarId Type)
 buildSignature (CompSimpleAST typeId utilData) _ _ binds ls = do 
@@ -778,7 +778,9 @@ inferPat (TypeConsPatternAST typeId pat' utilData) = do
     state <- get
     case getTermConstructor (sigma state) typeId of
         Nothing -> throwError $ UndefinedTermConstructorError typeId utilData
-        (Just (_, _, typ@(AlgeT name' _))) -> return (typ, []) -- TODO: recursive call!
+        (Just (_, _, FuncT sig (AlgeT _ _))) -> do
+            sig' <- freshType sig
+            match sig' pat'
         (Just _) -> throwError $ TermConstructorPatternMisuseError typeId utilData
 
 inferPat (ListPatternAST [] _) = do
@@ -840,9 +842,12 @@ match typ@(AlgeT name typs) pat@(TypeConsPatternAST typeId pat' utilData) = do
     state <- get
     case getTermConstructor (sigma state) typeId of
         Nothing             -> throwError $ UndefinedTermConstructorError typeId utilData
-        Just (_, _, FuncT s (AlgeT name' _)) ->
+        Just (_, _, FuncT sig (AlgeT name' typs')) ->
             if name' == name
-                then return (typ, []) -- TODO: recursive call!!
+                then do
+                    sub <- analyzeVars typs' typs Map.empty
+                    let sig' = substitute sub sig
+                    match sig' pat'
                 else throwError $ MatchPatternMismatchError typ pat utilData
         Just _ -> throwError $ MatchPatternMismatchError typ pat utilData
 
@@ -868,3 +873,8 @@ matchMultiple (t:ts) (p:ps) utilData = do
     (typ, binds)   <- match t p
     (typs, binds') <- matchMultiple ts ps utilData
     return $ (typ:typs, binds ++ binds')
+
+analyzeVars :: [Type] -> [Type] -> Substitution -> InferT Substitution
+analyzeVars [] [] sub = return sub
+analyzeVars ((PolyT tvar):t1s) (t2:t2s) sub = analyzeVars t1s t2s (Map.insert tvar t2 sub)
+analyzeVars _ _ _ = error "mismatched typevariables" -- should not happen

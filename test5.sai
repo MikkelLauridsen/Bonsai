@@ -13,8 +13,26 @@ type Maybe<a> = {
     | Nothing
 }
 
-var hmm2 = u => { u * 5.0 }
+type Map<k,v> = {
+    | Node (k, v, Map, Map)
+    | Nil
+}
 
+var lookup = map => { # TODO: undgå constraints på termkonstruktørers "globale" variabler
+    key => {
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
+            }
+        }
+    }
+}
+
+var hmm2 = u => { u * 5.0 }
 
 var maybe = Just 10
 
