@@ -42,7 +42,7 @@ instance Show Type where
     show (UniqT typ _)               = show typ ++ "*"
     show (PolyT (TVar name []))      = name
     show (PolyT (TVar name classes)) = name ++ "<<" ++ ([show class' | class' <- init classes] >>= (++ ", ")) ++ show (last classes) ++ ">>"
-
+    
 -- a termconstructor has a name an associated type and optionally a signature
 type TermConstructor = (TypeId, Type, Type)
 
@@ -112,6 +112,9 @@ data TypeError = LinearTypeError Type UtilData
                | TypeRedefinitionError TypeId UtilData
                | TermConstructorRedefinitionError TypeId UtilData
                | UndefinedTermConstructorError TypeId UtilData
+               | UndefinedTypeError TypeId UtilData
+               | TermConstructorTypeMisuseError TypeId VarId UtilData
+               | NotAlgebraicTypeError Type UtilData
                | TermConstructorPatternMisuseError TypeId UtilData
                | TypeClassMismatchError Type Type UtilData
                | TypeMismatchError Type Type UtilData
@@ -140,6 +143,9 @@ evalError (VariableRedefinitionError varId utilData)          = formatErr ("glob
 evalError (TypeRedefinitionError typeId utilData)             = formatErr ("algebraic type '" ++ typeName typeId ++  "' cannot be redefined") utilData
 evalError (TermConstructorRedefinitionError typeId utilData)  = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be redefined") utilData
 evalError (UndefinedTermConstructorError typeId utilData)     = formatErr ("unknown termconstructor '" ++  typeName typeId ++ "'") utilData
+evalError (UndefinedTypeError typeId utilData)                = formatErr ("unknown type '" ++ typeName typeId ++ "'") utilData
+evalError (TermConstructorTypeMisuseError id varId utilData)  = formatErr ("algebraic type '" ++ typeName id ++ "' does not have typevariable '" ++ varName varId ++ "'") utilData
+evalError (NotAlgebraicTypeError typ utilData)                = formatErr ("type '" ++ show typ ++ "' cannot be used polymorphically") utilData
 evalError (TermConstructorPatternMisuseError typeId utilData) = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be used as a constant") utilData
 evalError (TypeClassMismatchError typ1 typ2 utilData)         = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
 evalError (TypeMismatchError typ1 typ2 utilData)              = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
@@ -273,13 +279,6 @@ unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData =
 -- catch all
 unify typ1 typ2 utilData = throwError $ TypeMismatchError typ1 typ2 utilData
 
-unifyMultiple :: [Type] -> [Type] -> UtilData -> InferT Substitution
-unifyMultiple [] [] _ = return Map.empty
-unifyMultiple (t1:t1s) (t2:t2s) utilData = do
-    sub  <- unify t1 t2 utilData
-    sub' <- unifyMultiple t1s t2s utilData
-    return $ sub `Map.union` sub'
-
 checkClass :: Type -> TypeClass -> Bool
 checkClass typ (TClass _ fun) = fun typ
 
@@ -368,9 +367,178 @@ infer path ast =
 
 inferProg :: ProgAST -> TypeEnv -> InferT Substitution -- TODO: typeDcl and main!
 inferProg (ProgAST dt dv utilData) env = do
-    env'  <- inferVarDclLazily dv env
-    _     <- inferVarDcl dv env'
+    lsigma <- inferTypeDclLazily dt Set.empty
+    inferTypeDcl dt lsigma
+    env'   <- inferVarDclLazily dv env
+    _      <- inferVarDcl dv env'
     unifyAll
+
+inferTypeDclLazily :: TypeDclAST -> LazySig -> InferT LazySig
+inferTypeDclLazily EpsTypeDclAST lsigma = return lsigma
+inferTypeDclLazily (TypeDclAST name _ dt utilData) lsigma =
+    case find (\(name', _) -> name' == name) (Set.toList lsigma) of
+        Just _ -> throwError $ TypeRedefinitionError name utilData
+        Nothing -> do
+            let lsigma' = Set.insert (name, []) lsigma 
+            inferTypeDclLazily dt lsigma'
+
+inferTypeDclLazily (TypePolyDclAST name polys _ dt utilData) lsigma =
+    case find (\(name', _) -> name' == name) (Set.toList lsigma) of
+        Just _ -> throwError $ TypeRedefinitionError name utilData
+        Nothing -> do
+            let lsigma' = Set.insert (name, vars) lsigma 
+            inferTypeDclLazily dt lsigma'
+    where
+        vars = List.map varName polys
+
+inferTypeDcl :: TypeDclAST -> LazySig -> InferT ()
+inferTypeDcl EpsTypeDclAST _ = return ()
+inferTypeDcl (TypeDclAST name cons dt _) lsigma = do
+    evalCons cons name [] lsigma
+    inferTypeDcl dt lsigma
+
+inferTypeDcl (TypePolyDclAST name polys cons dt _) lsigma = do
+    evalCons cons name vars lsigma
+    inferTypeDcl dt lsigma
+    where
+        vars = List.map varName polys
+
+getAlgebraicType :: TypeId -> [String] -> InferT Type
+getAlgebraicType name vars = do
+    tvars <- mapVars vars
+    return $ AlgeT name tvars
+
+mapVars :: [String] -> InferT [Type]
+mapVars [] = return []
+mapVars (v:vs) = do
+    tvar <- genTVar []
+    tvars <- mapVars vs
+    return (tvar:tvars)
+
+evalCons :: [ConsAST] -> TypeId -> [String] -> LazySig -> InferT ()
+evalCons [] _ _ _ = return ()
+evalCons (tc:tcs') memberName vars lsigma = do
+    state <- get
+    memberTyp <- getAlgebraicType memberName vars
+    case tc of
+        (SingleConsAST name utilData) ->
+            if (sigma state) `has` name
+                then throwError $ TermConstructorRedefinitionError name utilData
+                else do
+                    put state{ sigma = Set.insert (name, memberTyp, memberTyp) (sigma state) }
+                    evalCons tcs' memberName vars lsigma
+        (DoubleConsAST name s utilData) ->
+            if (sigma state) `has` name
+                then throwError $ TermConstructorRedefinitionError name utilData
+                else do
+                    (sig, _) <- buildSignature s memberName vars Map.empty lsigma
+                    put state{ sigma = Set.insert (name, memberTyp, sig)  (sigma state) }
+                    evalCons tcs' memberName vars lsigma
+
+buildSignature :: CompTypeAST -> TypeId -> [String] -> Map VarId Type -> LazySig -> InferT (Type, Map VarId Type)
+buildSignature (CompSimpleAST typeId utilData) _ _ binds ls = do 
+    typ <- lazyIdToTypes typeId ls utilData
+    return (typ, binds)
+
+buildSignature (CompSimplePolyAST varId utilData) memberName vars binds _ =
+    if elem (varName varId) vars
+        then case Map.lookup varId binds of
+            Just tvar -> return (tvar, binds)
+            Nothing -> do
+                tvar <- genTVar []
+                return (tvar, Map.insert varId tvar binds)
+        else throwError $ TermConstructorTypeMisuseError memberName varId utilData
+
+buildSignature (CompPolyAST typeId comps' utilData) memberName vars binds ls = do
+    typ <- lazyIdToTypes typeId ls utilData
+    case typ of
+        AlgeT _ polys ->
+            if length polys == length comps'
+                then do
+                    (typs, binds') <- buildSignatureList comps' memberName vars binds ls
+                    return (AlgeT typeId typs, binds')
+                else throwError $ LengthMismatchError utilData
+        _ -> throwError $ NotAlgebraicTypeError typ utilData
+
+buildSignature (CompListAST comp' _) memberName vars binds ls = do
+    (typ, binds') <- buildSignature comp' memberName vars binds ls
+    return (ListT typ, binds')
+
+buildSignature (CompTupleAST comps' _) memberName vars binds ls = do
+    (typs, binds') <- buildSignatureList comps' memberName vars binds ls
+    return (TuplT typs, binds')
+
+buildSignature (CompFuncAST comp1' comp2' _) memberName vars binds ls = do
+    (typ1, binds')  <- buildSignature comp1' memberName vars binds ls
+    (typ2, binds'') <- buildSignature comp2' memberName vars binds' ls
+    return (FuncT typ1 typ2, binds'')
+
+buildSignatureList :: [CompTypeAST] -> TypeId -> [String] -> Map VarId Type -> LazySig -> InferT ([Type], Map VarId Type)
+buildSignatureList [] _ _ binds _ = return ([], binds)
+buildSignatureList (comp:comps') memberName vars binds ls = do
+    (typ, binds')   <- buildSignature comp memberName vars binds ls
+    (typs, binds'') <- buildSignatureList comps' memberName vars binds' ls
+    return (typ:typs, binds'')
+
+lazyIdToTypes :: TypeId -> LazySig -> UtilData -> InferT Type
+lazyIdToTypes id ls utilData =
+    if last (typeName id) == '*'
+        then case stringToNonUniquePrim (init (typeName id)) of
+            (Just typ) -> return $ UniqT typ True
+            Nothing    ->
+                case find (\(id', _) -> typeName id' == init (typeName id)) (Set.toList ls) of
+                    (Just (name, polys)) -> do 
+                        typ <- getAlgebraicType name polys
+                        return $ UniqT typ True
+                    Nothing -> throwError $ UndefinedTypeError id utilData
+        else case stringToNonUniquePrim (typeName id) of
+            (Just typ) -> return typ
+            Nothing    ->
+                case find (\(id', _) -> id' == id) (Set.toList ls) of
+                    (Just (name, polys)) -> getAlgebraicType name polys
+                    Nothing -> throwError $ UndefinedTypeError id utilData
+
+stringToNonUniquePrim :: String -> Maybe Type
+stringToNonUniquePrim "Int"    = Just $ PrimT IntPrim
+stringToNonUniquePrim "Float"  = Just $ PrimT FloatPrim
+stringToNonUniquePrim "Bool"   = Just $ PrimT BoolPrim
+stringToNonUniquePrim "Char"   = Just $ PrimT CharPrim
+stringToNonUniquePrim "File"   = Just $ PrimT FilePrim
+stringToNonUniquePrim "System" = Just $ PrimT SystemPrim
+stringToNonUniquePrim "String" = Just $ ListT (PrimT CharPrim)
+stringToNonUniquePrim _        = Nothing
+
+freshType :: Type -> InferT Type
+freshType typ@(PrimT _) = return typ
+freshType (FuncT typ1 typ2) = do
+    typ1' <- freshType typ1
+    typ2' <- freshType typ2
+    return $ FuncT typ1' typ1'
+
+freshType (TuplT typs) = do
+    typs' <- freshTypes typs
+    return $ TuplT typs'
+
+freshType (ListT typ) = do
+    typ' <- freshType typ
+    return $ ListT typ'
+
+freshType (AlgeT name typs) = do
+    typs' <- freshTypes typs
+    return $ AlgeT name typs'
+
+freshType (UniqT typ valid) = do
+    typ' <- freshType typ
+    return $ UniqT typ' valid
+
+freshType (PolyT (TVar _ classes)) = genTVar classes
+
+freshTypes :: [Type] -> InferT [Type]
+freshTypes [] = return []
+freshTypes (typ:typs) = do
+    typ  <- freshType typ
+    typs <- freshTypes typs
+    return (typ:typs)
 
 inferVarDclLazily :: VarDclAST -> TypeEnv -> InferT TypeEnv
 inferVarDclLazily EpsVarDclAST env = return env
@@ -414,7 +582,9 @@ inferExpr (TypeExprAST typeId utilData) _ = do
     state <- get
     case getSignature (sigma state) typeId of
         Nothing  -> throwError $ UndefinedTermConstructorError typeId utilData
-        Just typ -> return (typ, [])
+        Just typ -> do 
+            typ' <- freshType typ
+            return (typ', [])
 
 inferExpr (ParenExprAST expr _) env = inferExpr expr env
 

@@ -8,31 +8,37 @@
 
 
 
-
+type Maybe<a> = {
+    | Just a
+    | Nothing
+}
 
 var hmm2 = u => { u * 5.0 }
 
 
+var maybe = Just 10
 
+var maybe2 = Just 43.0
 
+var maybe3 = Just Nothing
 
 var main = sys => {
     match 5 {
         | 4 -> (5, 4.0)
-        | n -> (true, 32.0)
+        | n -> (3, 32.0)
     }
 }
 
-#var writes = s => {
-#    f => {
-#        match s {
-#            | []     -> (true, f)
-#            | (c:cs) -> 
-#                let (succ, f') = write c f 
-#                in (case {
-#                    | succ == true -> (writes cs f')
-#                    | ?            -> (false, f') 
-#                })
-#        }
-#    }
-#}
+var writes = s => {
+    f => {
+        match s {
+            | []     -> (true, f)
+            | (c:cs) -> 
+                let (succ, f') = write c f 
+                in (case {
+                    | succ == true -> (writes cs f')
+                    | ?            -> (false, f') 
+                })
+        }
+    }
+}
