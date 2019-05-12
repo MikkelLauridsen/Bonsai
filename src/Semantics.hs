@@ -1,5 +1,8 @@
 module Semantics
     ( interpret
+    , Values (..)
+    , Bindings (..)
+    , match
     ) where
 
 import Ast
@@ -21,7 +24,9 @@ type Binding = (VarId, Values)
 -- match results, either failure or a list of bindings
 data Bindings = MatchFail
               | Bindings [Binding]
+              deriving Eq
 
+            
 -- variabel environment type
 type Env = Map VarId Values
 

@@ -61,7 +61,7 @@ executable p4-exe
 
 test-suite p4-test
   type: exitcode-stdio-1.0
-  main-is: ast_Test.hs
+  main-is: Semantics_Test.hs
   other-modules:
       Paths_p4
   hs-source-dirs:
@@ -71,4 +71,5 @@ test-suite p4-test
       base >=4.7 && <5
     , p4
     , HUnit
+    , containers
   default-language: Haskell2010
