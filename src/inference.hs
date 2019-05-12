@@ -52,9 +52,16 @@ type Constraint = (Type, Type, UtilData)
 
 type Substitution = Map TypeVar Type
 
-data TypeVar = TVar String [TypeClass] deriving (Eq, Ord)
+data TypeVar = TVar String [TypeClass]
 
-data Scheme = ForAll [TypeVar] Type  
+instance Eq TypeVar where
+    TVar name1 _ == TVar name2 _ = name1 == name2
+
+instance Ord TypeVar where
+    TVar name1 _ `compare` TVar name2 _ = name1 `compare` name2
+
+data Scheme = ForAll [TypeVar] Type
+            | LazyT ExprAST
 
 -- type-environment type
 newtype TypeEnv = TypeEnv (Map VarId Scheme)
@@ -85,6 +92,7 @@ instance Substitutable Type where
 
 instance Substitutable Scheme where
     ftv (ForAll vars typ) = (ftv typ) `Set.difference` Set.fromList vars
+    ftv (LazyT _) = Set.empty
 
     substitute sub (ForAll vars typ) = ForAll vars (substitute (List.foldr Map.delete sub vars) typ)
 
@@ -232,28 +240,25 @@ unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData =
         substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
 
 unify (FuncT s1 s2) (FuncT t1 t2) utilData = do
-    state <- get
-    put state{ constraints = (constraints state) ++ [(s1, t1, utilData), (s2, t2, utilData)] }
+    addConstraints [(s1, t1, utilData), (s2, t2, utilData)]
     return Map.empty
 
 unify typ1@(TuplT typs1) typ2@(TuplT typs2) utilData =
-    if length typs1 /= length typs2
-        then throwError $ TypeMismatchError typ1 typ2 utilData
-        else do
-            state <- get
-            put state{ constraints = (constraints state) ++ [(typ1', typ2', utilData) | typ1' <- typs1, typ2' <- typs2] }
+    if length typs1 == length typs2
+        then do
+            addConstraints (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2))
             return Map.empty
+        else throwError $ TypeMismatchError typ1 typ2 utilData
 
 unify (ListT typ1) (ListT typ2) utilData = do
-    state <- get
-    put state{ constraints = (constraints state) ++ [(typ1, typ2, utilData)] }
+    addConstraints [(typ1, typ2, utilData)]
     return Map.empty
 
 unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData = do
     state <- get
     if name1 == name2  && (sigma state) `has` name1 && length typs1 == length typs2
         then do
-            put state{ constraints = (constraints state) ++ [(typ1', typ2', utilData) | typ1' <- typs1, typ2' <- typs2] }
+            addConstraints (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2))
             return Map.empty
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
@@ -262,12 +267,18 @@ unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData =
         (False, True)  -> throwError $ LinearTypeError typ1 utilData
         (True, False)  -> throwError $ LinearTypeError typ2 utilData
         _              -> do
-            state <- get
-            put state{ constraints = constraints state ++ [(typ1', typ2', utilData)] }
+            addConstraints [(typ1', typ2', utilData)]
             return Map.empty
 
 -- catch all
 unify typ1 typ2 utilData = throwError $ TypeMismatchError typ1 typ2 utilData
+
+unifyMultiple :: [Type] -> [Type] -> UtilData -> InferT Substitution
+unifyMultiple [] [] _ = return Map.empty
+unifyMultiple (t1:t1s) (t2:t2s) utilData = do
+    sub  <- unify t1 t2 utilData
+    sub' <- unifyMultiple t1s t2s utilData
+    return $ sub `Map.union` sub'
 
 checkClass :: Type -> TypeClass -> Bool
 checkClass typ (TClass _ fun) = fun typ
@@ -327,6 +338,11 @@ addConstraint typ1 typ2 utilData = do
     state <- get
     put state{ constraints = constraints state ++ [(typ1, typ2, utilData)] }
 
+addConstraints :: [Constraint] -> InferT ()
+addConstraints constraints' = do
+    state <- get
+    put state{ constraints = constraints state ++ constraints' }
+
 proj :: Scheme -> InferT Type
 proj (ForAll vars typ) = do
     vars' <- mapM fresh vars
@@ -358,33 +374,37 @@ inferProg (ProgAST dt dv utilData) env = do
 
 inferVarDclLazily :: VarDclAST -> TypeEnv -> InferT TypeEnv
 inferVarDclLazily EpsVarDclAST env = return env
-inferVarDclLazily (VarDclAST (UntypedVarAST varId _) _ dv utilData) env = do 
-    tvar <- genTVar []
-    inferVarDclLazily dv (env `except` (varId, ForAll [] tvar))
+inferVarDclLazily (VarDclAST (UntypedVarAST varId _) expr dv utilData) env = inferVarDclLazily dv (env `except` (varId, LazyT expr))
 
 inferVarDclLazily (VarDclAST (TypedVarAST varId s _) _ dv utilData) env = error "not yet implemented!" -- TODO: annotations
 
 inferVarDcl :: VarDclAST -> TypeEnv -> InferT TypeEnv
 inferVarDcl EpsVarDclAST env = return env
 inferVarDcl (VarDclAST (UntypedVarAST varId _) expr dv utilData) env = do
-    (typ, _) <- inferExpr expr env
-    let scheme = gen env typ
-    inferVarDcl dv (env `except` (varId, scheme))
+    tvar <- genTVar []
+    _ <- inferExpr expr (env `except` (varId, ForAll [] tvar))
+    inferVarDcl dv env
 
 inferVarDcl (VarDclAST (TypedVarAST varId s _) expr dv utilData) env = error "not yet implemented!" -- TODO: annotations  
 
 inferExpr :: ExprAST -> TypeEnv -> InferT (Type, [Binding])
-inferExpr (VarExprAST varId utilData) (TypeEnv env) =
-    case Map.lookup varId env of
-        Nothing                -> throwError $ VariableScopeError varId utilData
-        Just (ForAll vars typ) -> do
-            ins <- proj (ForAll vars typ')
-            return (ins, [(varId, ForAll vars typ')])
+inferExpr (VarExprAST varId utilData) env@(TypeEnv env') =
+    case Map.lookup varId env' of
+        Nothing -> throwError $ VariableScopeError varId utilData
+        Just (LazyT expr) -> do
+            tvar <- genTVar []
+            (typ, binds) <- inferExpr expr (env `except` (varId, ForAll [] tvar))
+            let typ' = case typ of
+                    UniqT utyp _ -> UniqT utyp False
+                    _            -> typ   
+            return (typ, binds ++ [(varId, ForAll [] typ')])
+        Just typ@(ForAll vars typ') -> do
+            ins <- proj typ
+            return (ins, [(varId, ForAll vars typ'')])
             where
-                typ' = 
-                    case typ of
-                        (UniqT typ'' v) -> UniqT typ'' False
-                        _               -> typ       
+                typ'' = case typ' of
+                    UniqT utyp _ -> UniqT utyp False
+                    _            -> typ'   
 
 inferExpr (ConstExprAST c _) _ = do 
     typ <- inferConst c
@@ -401,7 +421,7 @@ inferExpr (ParenExprAST expr _) env = inferExpr expr env
 inferExpr (LambdaExprAST (UntypedVarAST varId _) expr _) env = do
     tvar <- genTVar []
     let env' = env `except` (varId, ForAll [] tvar)
-    (typ, bindings)  <- inferExpr expr env'
+    (typ, bindings) <- inferExpr expr env'
     return (FuncT tvar typ, bindings)
 
 inferExpr (FunAppExprAST expr1 expr2 utilData) env = do
@@ -422,17 +442,16 @@ inferExpr (ListExprAST exprs utilData) env = do
         [] -> do
             tvar <- genTVar []
             return (ListT tvar, binds)
-        (typ:typs') -> do 
-            state <- get
-            put state{ constraints = constraints state ++ [(typ, typ', utilData) | typ' <- typs'] }
+        (typ:typs') -> do
+            addConstraints [(typ, typ', utilData) | typ' <- typs']
             return (ListT typ, binds) 
 
 inferExpr (LetInExprAST (UntypedVarAST varId _) expr1 expr2 utilData) env = do
     tvar <- genTVar []
     let env' = env `except` (varId, ForAll [] tvar)
-    (typ1, binds) <- inferExpr expr1 env'
+    (_, binds) <- inferExpr expr1 env'
     let env'' = applyBindings env' binds
-    let scheme = gen env'' typ1
+    let scheme = LazyT expr1
     (typ2, binds') <- inferExpr expr2 (env'' `except` (varId, scheme))
     return (typ2, binds ++ binds')
 
@@ -441,8 +460,7 @@ inferExpr (CaseExprAST branches utilData) env = do
     case typs of
         [] -> error "a case expression must have at least one branch" -- should not happen
         (typ:typs') -> do
-            state <- get
-            put state{ constraints = constraints state ++ [(typ, typ', utilData) | typ' <- typs'] }
+            addConstraints [(typ, typ', utilData) | typ' <- typs']
             return (typ, [])
 
 inferExpr (MatchExprAST expr branches utilData) env = do
@@ -452,8 +470,7 @@ inferExpr (MatchExprAST expr branches utilData) env = do
     case typ2s of
         [] -> error "a match expression must have at least one branch" -- should not happen
         (typ2:typ2s') -> do 
-            state <- get
-            put state{ constraints = constraints state ++ [(typ2, typ2', utilData) | typ2' <- typ2s'] }
+            addConstraints [(typ2, typ2', utilData) | typ2' <- typ2s']
             return (typ2, binds)
 
 inferExprs :: [ExprAST] -> TypeEnv -> InferT ([Type], [Binding])
@@ -511,7 +528,10 @@ inferConst (MinusConstAST _)  = binaryFun [numClass]
 inferConst (TimesConstAST _)  = binaryFun [numClass]
 inferConst (DivideConstAST _) = binaryFun [numClass]
 inferConst (ModuloConstAST _) = binaryFun [numClass]
-inferConst (EqualsConstAST _) = binaryFun [eqClass]
+
+inferConst (EqualsConstAST _) = do
+    tvar <- genTVar [eqClass]
+    return $ FuncT tvar (FuncT tvar (PrimT BoolPrim))
 
 inferConst (NotConstAST _) = return $ FuncT (PrimT BoolPrim) (PrimT BoolPrim)
 

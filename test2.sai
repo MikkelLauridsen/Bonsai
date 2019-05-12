@@ -27,12 +27,19 @@ var map = fun => {
 }
 
 var main = sys => {
-    let fun = y => {
+    let fun = n => {
         case {
-            | y <= 1 -> 1
-            | ?      -> fun (y - 1)
+            | n <= 1 -> 1
+            | ?      -> n * (fun (n - 1))
         }
-    } in (writes (show (fun true)) stdout)
+    } in (writes (show (fun 4.0)) stdout)
+}
+
+var factorial = n => {
+    case {
+        | n <= 1 -> 1
+        | ?      -> n * (factorial (n - 1))
+    }
 }
 
 var writes = s => {
