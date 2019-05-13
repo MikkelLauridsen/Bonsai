@@ -18,6 +18,44 @@ type Map<k,v> = {
     | Nil
 }
 
+type Enum = {
+    | One
+    | Two
+    | Three
+}
+
+var noob = i => { 'c' b<< i }
+
+var hmm2 = u => { u * 5.0 }
+
+var maybe = Just 10
+
+var maybe2 = Just 43.0
+
+var maybe3 = Just Nothing
+
+var main = sys => {
+    let map' = Node ("hehe", 6, (Node ("hehh", 10, Nil, Nil)), Nil)
+    in (lookup map' "hehh")
+}
+
+var test1 = enum => {
+    match enum {
+        | One   -> 1
+        | Two   -> 2
+        | Three -> 3
+    }
+}
+
+var test = map => {
+    key => {
+        match map {
+            | Node (key', value, map1', map2') -> Just value
+            | Nil -> Nothing
+        }
+    }
+}
+
 var lookup = map => { # TODO: undgå constraints på termkonstruktørers "globale" variabler
     key => {
         match map {
@@ -29,21 +67,6 @@ var lookup = map => { # TODO: undgå constraints på termkonstruktørers "global
                 | key > key'  -> lookup map2' key
             }
         }
-    }
-}
-
-var hmm2 = u => { u * 5.0 }
-
-var maybe = Just 10
-
-var maybe2 = Just 43.0
-
-var maybe3 = Just Nothing
-
-var main = sys => {
-    match 5 {
-        | 4 -> (5, 4.0)
-        | n -> (3, 32.0)
     }
 }
 

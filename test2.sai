@@ -1,57 +1,42 @@
-
-
-
-
-
-var x = 10
-
-
-var y = 10 * x
-
-var max = a => {
-    b => {
-        case {
-            | a > b -> a
-            | ?     -> b
-        }
-    }
+type Maybe<a> = {
+    | Just a
+    | Nothing
 }
 
-var map = fun => {
-    lst => {
-        match lst {
-            | [] -> []
-            | (x:xs) -> ((fun x) : (map fun xs))
-        }
-    }
+type Map<k,v> = {
+    | Node (k, v, Map, Map)
+    | Nil
 }
+
+var hmm2 = u => { u * 5 }
 
 var main = sys => {
-    let fun = n => {
-        case {
-            | n <= 1 -> 1
-            | ?      -> n * (fun (n - 1))
-        }
-    } in (writes (show (fun 4.0)) stdout)
-}
+    1
+} 
 
-var factorial = n => {
-    case {
-        | n <= 1 -> 1
-        | ?      -> n * (factorial (n - 1))
+var uuup = lookup (Node ('c', 4.0, Nil, Nil))
+
+var uuuup = fun ('c', 5.0)
+
+var ii::Int = 10
+
+var fun = u => {
+    match u {
+        | ('c', 4.0) -> 4.0
+        | (x, y) -> y * 3.0
     }
 }
 
-var writes = s => {
-    f => {
-        match s {
-            | []     -> (true, f)
-            | (c:cs) -> 
-                let (succ, f') = write c f 
-                in (case {
-                    | succ == true -> (writes cs f')
-                    | ?            -> (false, f') 
-                })
+var lookup = map => { # TODO: undgå constraints på termkonstruktørers "globale" variabler
+    key => {
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
+            }
         }
     }
 }
