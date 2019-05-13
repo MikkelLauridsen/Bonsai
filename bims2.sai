@@ -314,7 +314,7 @@ var int16ToBytes = uint16ToBytes
 
 var tableToBytes = 
 f => { 
-    l::[a] => { concat (map f l) }
+    l => { concat (map f l) }
 }
 
 var poolConstantToBytes = 

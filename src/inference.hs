@@ -166,7 +166,7 @@ genTVar :: [TypeClass] -> InferT Type
 genTVar classes = do
     state <- get
     put state{ next = next state + 1 }
-    return $ PolyT (TVar (".a" ++ show (next state)) classes)
+    return $ PolyT (TVar ("a" ++ show (next state)) classes)
 
 freshTVars :: [TypeVar] -> InferT [Type]
 freshTVars [] = return []
@@ -231,14 +231,15 @@ unify typ1@(PrimT prim1) typ2@(PrimT prim2) utilData =
         then return Map.empty
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
-unify (PolyT var@(TVar _ classes1)) (PolyT (TVar id classes2)) _ = do
+unify (PolyT var1@(TVar _ classes1)) (PolyT var2@(TVar _ classes2)) _ = do
     state <- get
+    tvar  <- genTVar classes'
+    let sub = Map.fromList [(var1, tvar), (var2, tvar)]
+    let substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
     put state{ constraints = List.map (substituteConstraint) (constraints state) }
     return sub
     where
         classes' = classes1 `List.union` classes2
-        sub = Map.singleton var (PolyT (TVar id classes'))
-        substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
 
 unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData =
     if List.foldr ((&&) . (checkClass typ2)) True classes
@@ -284,7 +285,7 @@ unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData = do
             Just _  -> do 
                 addConstraints (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2))
                 return Map.empty
-            Nothing -> throwError $ DebugError (show (upsilon state)) utilData -- UndefinedTypeError name1 utilData
+            Nothing -> throwError $ UndefinedTypeError name1 utilData
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
 unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData =
@@ -416,7 +417,7 @@ inferTypeDclLazily (TypeDclAST name _ dt utilData) = do
     case find (\(name', _) -> name' == name) (Set.toList (lsigma state)) of
         Just _ -> throwError $ TypeRedefinitionError name utilData
         Nothing -> do
-            put state{ lsigma = Set.insert (name, []) (lsigma state) } 
+            put state{ lsigma = Set.insert (name, []) (lsigma state), upsilon = Map.insert name (AlgeT name []) (upsilon state) } 
             inferTypeDclLazily dt
 
 inferTypeDclLazily (TypePolyDclAST name polys _ dt utilData) = do
@@ -424,7 +425,8 @@ inferTypeDclLazily (TypePolyDclAST name polys _ dt utilData) = do
     case find (\(name', _) -> name' == name) (Set.toList (lsigma state)) of
         Just _ -> throwError $ TypeRedefinitionError name utilData
         Nothing -> do
-            put state{ lsigma = Set.insert (name, vars) (lsigma state) }  
+            tvars <- mapVars vars
+            put state{ lsigma = Set.insert (name, vars) (lsigma state), upsilon = Map.insert name (AlgeT name tvars) (upsilon state) }  
             inferTypeDclLazily dt
     where
         vars = List.map varName polys
@@ -449,13 +451,7 @@ getAlgebraicType name utilData = do
     state <- get
     case Map.lookup name (upsilon state) of
         Just typ -> return typ
-        Nothing  ->
-            case find (\(name', _) -> name' == name) (Set.toList (lsigma state)) of
-                Just (_, vars) -> do
-                    tvars <- mapVars vars
-                    put state{ upsilon = Map.insert name (AlgeT name tvars) (upsilon state) }
-                    return $ AlgeT name tvars
-                Nothing -> throwError $ UndefinedTypeError name utilData
+        Nothing  -> throwError $ UndefinedTypeError name utilData
 
 mapVars :: [String] -> InferT [Type]
 mapVars [] = return []
@@ -647,17 +643,17 @@ inferExpr (VarExprAST varId utilData) env@(TypeEnv env') =
         Just (LazyT expr) -> do
             tvar <- genTVar []
             (typ, binds) <- inferExpr expr (env `except` (varId, ForAll [] tvar))
-            let typ' = case typ of
-                    UniqT utyp _ -> UniqT utyp False
-                    _            -> typ   
-            return (typ, binds ++ [(varId, ForAll [] typ')])
+            let binds' = case typ of
+                    UniqT utyp _ -> [(varId, ForAll [] (UniqT utyp False))]
+                    _            -> []
+            return (typ, binds ++ binds')
         Just typ@(ForAll vars typ') -> do
             ins <- proj typ
-            return (ins, [(varId, ForAll vars typ'')])
+            return (ins, binds)
             where
-                typ'' = case typ' of
-                    UniqT utyp _ -> UniqT utyp False
-                    _            -> typ'   
+                binds = case typ' of
+                    UniqT utyp _ -> [(varId, ForAll vars (UniqT utyp False))]
+                    _            -> []  
 
 inferExpr (ConstExprAST c _) _ = do 
     typ <- inferConst c
@@ -835,12 +831,18 @@ inferConst (ConcatenateConstAST _) = do
 inferConst (AndConstAST _) = return $ FuncT (PrimT BoolPrim) (FuncT (PrimT BoolPrim) (PrimT BoolPrim)) 
 inferConst (OrConstAST _)  = return $ FuncT (PrimT BoolPrim) (FuncT (PrimT BoolPrim) (PrimT BoolPrim))
 
-inferConst (BiLShiftConstAST _) = binaryFun [biClass] 
-inferConst (BiRShiftConstAST _) = binaryFun [biClass] 
-inferConst (BiNotConstAST _)    = binaryFun [biClass] 
-inferConst (BiAndConstAST _)    = binaryFun [biClass] 
-inferConst (BiXorConstAST _)    = binaryFun [biClass] 
-inferConst (BiOrConstAST _)     = binaryFun [biClass] 
+inferConst (BiLShiftConstAST _) = do
+    tvar <- genTVar [biClass]
+    return $ FuncT tvar (FuncT (PrimT IntPrim) tvar)
+
+inferConst (BiRShiftConstAST _) = do
+    tvar <- genTVar [biClass]
+    return $ FuncT tvar (FuncT (PrimT IntPrim) tvar)
+
+inferConst (BiNotConstAST _) = binaryFun [biClass] 
+inferConst (BiAndConstAST _) = binaryFun [biClass] 
+inferConst (BiXorConstAST _) = binaryFun [biClass] 
+inferConst (BiOrConstAST _)  = binaryFun [biClass] 
 
 inferConst (OpenReadConstAST _)  = return $ FuncT (UniqT (PrimT SystemPrim) True) (FuncT (ListT (PrimT CharPrim)) (TuplT [PrimT BoolPrim, UniqT (PrimT SystemPrim) True, UniqT (PrimT FilePrim) True]))
 inferConst (OpenWriteConstAST _) = return $ FuncT (UniqT (PrimT SystemPrim) True) (FuncT (ListT (PrimT CharPrim)) (TuplT [PrimT BoolPrim, UniqT (PrimT SystemPrim) True, UniqT (PrimT FilePrim) True]))

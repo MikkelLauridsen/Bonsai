@@ -1,0 +1,41 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+var testt = u => {
+    u * u
+}
+
+var hmm = c => {
+    k => {
+        c * c b>> k
+    }
+}
+
+var uuu = testt 7.0
+
+var main = sys => {
+    let x = u => {
+        case {
+            | u <= 1 -> 1
+            | u > 1  -> u * (x (u - 1))
+        }
+    }
+    in (x 8.0)
+}
+
+var fac = u => {
+    case {
+        | u <= 1 -> 1
+        | u > 1  -> u * (fac (u - 1))
+    }
+}
