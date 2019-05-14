@@ -7,15 +7,10 @@
 
 
 
+var fun::(Int -> Int) = x => {
+    x * 10
+}
 
-
-
-
-
-
-
-var nab::([a] -> [a]) = u => { u }
-
-var xD = nab [10]
-
-var dX = nab [10.0]
+var main = sys => {
+    fun 6.0
+}

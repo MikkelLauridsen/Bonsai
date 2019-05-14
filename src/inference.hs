@@ -100,7 +100,8 @@ instance Substitutable Type where
 
 instance Substitutable Scheme where
     ftv (ForAll vars typ) = (ftv typ) `Set.difference` Set.fromList vars
-    ftv (LazyT _) = Set.empty
+    ftv (LazyT _)         = Set.empty
+    ftv (LazyS _ _)       = Set.empty
 
     substitute sub (ForAll vars typ) = ForAll vars (substitute (List.foldr Map.delete sub vars) typ)
 
@@ -644,7 +645,8 @@ inferVarDcl (VarDclAST (UntypedVarAST varId _) _ dv _) = do
             tvar     <- genTVar []
             (typ, _) <- inferExpr e (initEnv `except` (varId, (ForAll [] tvar)))
             state'   <- get
-            put state'{ globalEnv = (globalEnv state') `except` (varId, ForAll [] typ) }
+            let scheme = gen (globalEnv state') typ
+            put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
             inferVarDcl dv
         Just (ForAll _ _) -> inferVarDcl dv 
         _ -> error "unknown variable" -- should not happen
@@ -656,7 +658,8 @@ inferVarDcl (VarDclAST (TypedVarAST varId _ _) _ dv utilData) = do
             (typ, _)  <- types s Map.empty
             (typ', _) <- inferExpr e (initEnv `except` (varId, (ForAll [] typ)))
             state' <- get
-            put state'{ globalEnv = (globalEnv state') `except` (varId, ForAll [] typ') }
+            let scheme = gen (globalEnv state') typ
+            put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
             addConstraint typ typ' utilData
             inferVarDcl dv
         Just (ForAll _ _) -> inferVarDcl dv
@@ -666,28 +669,30 @@ getGlobal :: VarId -> UtilData -> InferT Type
 getGlobal varId utilData = do
     state <- get
     case getVar (globalEnv state) varId of
-        Just (ForAll vars typ'@(UniqT typ True)) -> do
+        Just scheme@(ForAll vars (UniqT typ True)) -> do
             put state{ globalEnv = (globalEnv state) `except` (varId, ForAll vars (UniqT typ False)) }
-            ins <- freshType typ'
+            ins <- proj scheme
             return ins
         Just (ForAll _ (UniqT typ False)) -> throwError $ LinearTypeError (UniqT typ False) utilData
-        Just (ForAll _ typ) -> do
-            ins <- freshType typ
+        Just scheme@(ForAll _ _) -> do
+            ins <- proj scheme
             return ins
         Just (LazyT e) -> do
             tvar     <- genTVar []
             (typ, _) <- inferExpr e (TypeEnv (Map.singleton varId (ForAll [] tvar)))
             state'   <- get
-            put state'{ globalEnv = (globalEnv state') `except` (varId, ForAll [] typ) }
-            ins <- freshType typ
+            let scheme = gen (globalEnv state') typ
+            put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
+            ins <- proj scheme
             return ins
         Just (LazyS e s) -> do
             (typ, _)  <- types s Map.empty
             (typ', _) <- inferExpr e (TypeEnv (Map.singleton varId (ForAll [] typ)))
+            let scheme = gen (globalEnv state) typ
             state'    <- get
-            put state'{ globalEnv = (globalEnv state') `except` (varId, ForAll [] typ') }
+            put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
             addConstraint typ typ' utilData
-            ins <- freshType typ'
+            ins <- proj scheme
             return ins
         _ -> throwError $ VariableScopeError varId utilData
 
@@ -768,7 +773,7 @@ inferExpr (LetInExprAST (TypedVarAST varId s _) expr1 expr2 utilData) env = do
     (typ1', binds) <- inferExpr expr1 env'
     addConstraint typ1 typ1' utilData
     let env'' = applyBindings env' binds
-    let scheme = ForAll [] typ1'
+    let scheme = gen env'' typ1
     (typ2, binds') <- inferExpr expr2 (env'' `except` (varId, scheme))
     return (typ2, binds ++ binds')
 
