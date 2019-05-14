@@ -1,5 +1,10 @@
 module Semantics
-    ( interpret
+    ( interpret,
+      Values(..),
+      compareLists,
+      formatErr,
+      evalCase,
+      evalLetIn
     ) where
 
 import Ast
