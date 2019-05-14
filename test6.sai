@@ -13,23 +13,9 @@
 
 
 
-var iii = o => { o * 4 }
 
-var testt = u => {
-    u * 5.0
-}
+var nab::([a] -> [a]) = u => { u }
 
+var xD = nab [10]
 
-var length::([a] -> Int) = 
-l::[a] => {
-    match l {
-        | []     -> 0
-        | (c:cs) -> 1 + length cs
-    }
-}
-
-var oooOOO = [true, true, false]
-
-var iiuu = ['c', 'i', 'o']
-
-var xD = length oooOOO
+var dX = nab [10.0]

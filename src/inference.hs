@@ -64,10 +64,12 @@ instance Ord TypeVar where
 
 data Scheme = ForAll [TypeVar] Type
             | LazyT ExprAST
+            | LazyS CompTypeAST
 
 instance Show Scheme where
     show (ForAll _ typ) = show typ
-    show (LazyT _) = "e"
+    show (LazyT _)      = "e"
+    show (LazyS _)      = "s"
 
 -- type-environment type
 newtype TypeEnv = TypeEnv (Map VarId Scheme) deriving Show
@@ -225,7 +227,7 @@ unifyAll = do
     case constraints state of
         [] -> return Map.empty
         ((typ1, typ2, utilData):c') -> do
-            put state{ constraints = c' }
+            put state{ constraints = c', debug = debug state ++ "\n\n" ++ (List.foldr ((++) . (\(t1,t2,_) -> (show t1 ++ " :: " ++ show t2 ++ "\n"))) "" (constraints state)) }
             sub  <- unify typ1 typ2 utilData
             sub' <- unifyAll
             return $ sub `Map.union` sub'
@@ -408,7 +410,7 @@ infer path ast =
         initEnv = TypeEnv $ Map.fromList [stdin', stdout']
 
 inferProg :: ProgAST -> TypeEnv -> InferT Substitution -- TODO: typeDcl and main!
-inferProg (ProgAST dt dv utilData) env = do
+inferProg (ProgAST dt dv _) env = do
     inferTypeDclLazily dt
     inferTypeDcl dt
     env'   <- inferVarDclLazily dv env
@@ -447,7 +449,7 @@ inferTypeDcl (TypePolyDclAST name polys cons dt utilData) = do
     case typ of
         AlgeT _ tvars -> do 
             let binds = List.foldr (\(k, v) -> Map.insert k v) Map.empty $ zip polys tvars
-            evalCons cons name binds utilData
+            _ <- evalCons cons name binds utilData
             inferTypeDcl dt
         _ -> error "type is not algebraic" -- should not happen
 
@@ -529,7 +531,7 @@ types (CompTupleAST comps' _) binds = do
     return (TuplT typs, binds')
 
 types (CompFuncAST comp1' comp2' _) binds = do
-    (typ1, binds')    <- types comp1' binds
+    (typ1, binds')  <- types comp1' binds
     (typ2, binds'') <- types comp2' binds'
     return (FuncT typ1 typ2, binds'')
 
@@ -620,10 +622,7 @@ freshType typ = do
 inferVarDclLazily :: VarDclAST -> TypeEnv -> InferT TypeEnv
 inferVarDclLazily EpsVarDclAST env = return env
 inferVarDclLazily (VarDclAST (UntypedVarAST varId _) expr dv _) env = inferVarDclLazily dv (env `except` (varId, LazyT expr))
-
-inferVarDclLazily (VarDclAST (TypedVarAST varId s _) _ dv _) env = do
-    (typ, _) <- types s Map.empty
-    inferVarDclLazily dv (env `except` (varId, ForAll [] typ))
+inferVarDclLazily (VarDclAST (TypedVarAST varId s _) _ dv _) env    = inferVarDclLazily dv (env `except` (varId, LazyS s))
 
 inferVarDcl :: VarDclAST -> TypeEnv -> InferT TypeEnv
 inferVarDcl EpsVarDclAST env = return env
@@ -632,13 +631,11 @@ inferVarDcl (VarDclAST (UntypedVarAST varId _) expr dv _) env = do
     _    <- inferExpr expr (env `except` (varId, ForAll [] tvar))
     inferVarDcl dv env
 
-inferVarDcl (VarDclAST (TypedVarAST varId _ _) expr dv utilData) env@(TypeEnv env') =
-    case Map.lookup varId env' of
-        Just (ForAll _ typ) -> do
-            (typ', _) <- inferExpr expr env
-            addConstraint typ typ' utilData
-            inferVarDcl dv env
-        _ -> error "unknown variables" -- should not happen
+inferVarDcl (VarDclAST (TypedVarAST varId s _) expr dv utilData) env@(TypeEnv env') = do
+    (typ, _)  <- types s Map.empty
+    (typ', _) <- inferExpr expr (env `except` (varId, ForAll [] typ))
+    addConstraint typ typ' utilData
+    inferVarDcl dv env
 
 inferExpr :: ExprAST -> TypeEnv -> InferT (Type, [Binding])
 inferExpr (VarExprAST varId utilData) env@(TypeEnv env') =
@@ -651,6 +648,12 @@ inferExpr (VarExprAST varId utilData) env@(TypeEnv env') =
                     UniqT utyp _ -> [(varId, ForAll [] (UniqT utyp False))]
                     _            -> []
             return (typ, binds ++ binds')
+        Just (LazyS s) -> do
+            (typ, _) <- types s Map.empty
+            let binds = case typ of
+                    UniqT utyp _ -> [(varId, ForAll [] (UniqT utyp False))]
+                    _            -> []
+            return (typ, binds)
         Just typ@(ForAll vars typ') -> do
             ins <- proj typ
             return (ins, binds)
