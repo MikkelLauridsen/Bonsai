@@ -7,7 +7,7 @@
 
 
 
-var fun::(Int -> Int) = x => {
+var fun = x => {
     x * 10
 }
 
