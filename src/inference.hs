@@ -40,8 +40,7 @@ instance Show Type where
     show (AlgeT typeId [])           = typeName typeId
     show (AlgeT typeId ps)           = typeName typeId ++ "<" ++ ([show typ' | typ' <- init ps] >>= (++ ", ")) ++ show (last ps) ++ ">"
     show (UniqT typ _)               = show typ ++ "*"
-    show (PolyT (TVar name []))      = name
-    show (PolyT (TVar name classes)) = name ++ "<<" ++ ([show class' | class' <- init classes] >>= (++ ", ")) ++ show (last classes) ++ ">>"
+    show (PolyT tvar@(TVar _ _))     = show tvar
     
 -- a termconstructor has a name an associated type and optionally a signature
 type TermConstructor = (TypeId, Type, Type)
@@ -61,6 +60,10 @@ instance Eq TypeVar where
 
 instance Ord TypeVar where
     TVar name1 _ `compare` TVar name2 _ = name1 `compare` name2
+
+instance Show TypeVar where
+    show (TVar name []) = name
+    show (TVar name classes) = name ++ "<<" ++ ([show class' | class' <- init classes] >>= (++ ", ")) ++ show (last classes) ++ ">>"
 
 data Scheme = ForAll [TypeVar] Type
             | LazyT ExprAST
@@ -103,7 +106,9 @@ instance Substitutable Scheme where
     ftv (LazyT _)         = Set.empty
     ftv (LazyS _ _)       = Set.empty
 
-    substitute sub (ForAll vars typ) = ForAll vars (substitute (List.foldr Map.delete sub vars) typ)
+    substitute sub (ForAll vars typ)  = ForAll vars (substitute (List.foldr Map.delete sub vars) typ)
+    substitute sub scheme@(LazyT _)   = scheme
+    substitute sub scheme@(LazyS _ _) = scheme
 
 instance Substitutable a => Substitutable [a] where
     ftv = List.foldr (Set.union . ftv) Set.empty
@@ -226,90 +231,72 @@ getTermConstructor sigma t = find (\(t', _, _) -> t' == t) (Set.toList sigma)
         
 -- unification
 
-unifyAll :: InferT Substitution
-unifyAll = do
+unifyAll :: Substitution -> [Constraint] -> InferT Substitution
+unifyAll sub [] = return sub
+unifyAll sub cs@((typ1, typ2, utilData):c') = do
     state <- get
-    case constraints state of
-        [] -> return Map.empty
-        ((typ1, typ2, utilData):c') -> do
-            put state{ constraints = c', debug = debug state ++ "\n\n" ++ (List.foldr ((++) . (\(t1,t2,_) -> (show t1 ++ " :: " ++ show t2 ++ "\n"))) "" (constraints state)) }
-            sub  <- unify typ1 typ2 utilData
-            sub' <- unifyAll
-            return $ sub `Map.union` sub'
+    put state{ debug = debug state ++ "\n\n" ++ (List.foldr ((++) . (\(t1,t2,_) -> (show t1 ++ " :: " ++ show t2 ++ "\n"))) "" cs) }
+    (sub', c'') <- unify typ1 typ2 utilData c'
+    unifyAll (sub' `compose` sub) c''
 
-unify :: Type -> Type -> UtilData -> InferT Substitution
-unify typ1@(PrimT prim1) typ2@(PrimT prim2) utilData =
+unify :: Type -> Type -> UtilData -> [Constraint] -> InferT (Substitution, [Constraint])
+unify typ1@(PrimT prim1) typ2@(PrimT prim2) utilData c' =
     if prim1 == prim2
-        then return Map.empty
+        then return (Map.empty, c')
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
-unify (PolyT var1@(TVar _ classes1)) (PolyT var2@(TVar _ classes2)) _ = do
+unify (PolyT var1@(TVar _ classes1)) (PolyT var2@(TVar _ classes2)) _ c' = do
     tvar  <- genTVar classes'
-    state <- get
     let sub = Map.fromList [(var1, tvar), (var2, tvar)]
     let substituteConstraint = \(t1, t2, utilData) -> (substitute sub t1, substitute sub t2, utilData)
-    put state{ constraints = List.map (substituteConstraint) (constraints state) }
-    return sub
+    return (sub, List.map substituteConstraint c')
     where
         classes' = classes1 `List.union` classes2
 
-unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData =
+unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData c' =
     if List.foldr ((&&) . (checkClass typ2)) True classes
-        then do 
-            state <- get
-            put state{ constraints = List.map (substituteConstraint) (constraints state) }
-            return sub
+        then return (sub, List.map substituteConstraint c')
         else throwError $ TypeClassMismatchError typ1 typ2 utilData
     where
         sub = Map.singleton var typ2
         substituteConstraint = \(t1, t2, ud) -> (substitute sub t1, substitute sub t2, ud)
 
-unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData =
+unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData c' =
     if List.foldr ((&&) . (checkClass typ1)) True classes
-        then do 
-            state <- get
-            put state{ constraints = List.map (substituteConstraint) (constraints state) }
-            return sub
+        then return (sub, List.map substituteConstraint c')
         else throwError $ TypeClassMismatchError typ2 typ1 utilData
     where
         sub = Map.singleton var typ1
         substituteConstraint = \(t1, t2, ud) -> (substitute sub t1, substitute sub t2, ud)
 
-unify (FuncT s1 s2) (FuncT t1 t2) utilData = do
-    addConstraints [(s1, t1, utilData), (s2, t2, utilData)]
-    return Map.empty
+unify (FuncT s1 s2) (FuncT t1 t2) utilData c' = return (Map.empty, c' ++ [(s1, t1, utilData), (s2, t2, utilData)])
 
-unify typ1@(TuplT typs1) typ2@(TuplT typs2) utilData =
+unify typ1@(TuplT typs1) typ2@(TuplT typs2) utilData c' =
     if length typs1 == length typs2
-        then do
-            addConstraints (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2))
-            return Map.empty
+        then return (Map.empty, c' ++ (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2)))
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
-unify (ListT typ1) (ListT typ2) utilData = do
-    addConstraints [(typ1, typ2, utilData)]
-    return Map.empty
+unify (ListT typ1) (ListT typ2) utilData c' = return (Map.empty, c' ++ [(typ1, typ2, utilData)])
 
-unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData = do
+unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData c' = do
     state <- get
     if name1 == name2 && length typs1 == length typs2
         then case Map.lookup name1 (upsilon state) of 
-            Just _  -> do 
-                addConstraints (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2))
-                return Map.empty
+            Just _  -> return (Map.empty, c' ++ (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2)))
             Nothing -> throwError $ UndefinedTypeError name1 utilData
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
-unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData =
+unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData c' =
     case (valid1, valid2) of
         (False, True)  -> throwError $ LinearTypeError typ1 utilData
         (True, False)  -> throwError $ LinearTypeError typ2 utilData
-        _              -> do
-            addConstraints [(typ1', typ2', utilData)]
-            return Map.empty
+        _              -> return (Map.empty, c' ++ [(typ1', typ2', utilData)])
 
 -- catch all
-unify typ1 typ2 utilData = throwError $ TypeMismatchError typ1 typ2 utilData
+unify typ1 typ2 utilData _ = throwError $ TypeMismatchError typ1 typ2 utilData
+
+compose :: Substitution -> Substitution -> Substitution
+compose sub1 sub2 = Map.map (substitute sub1) sub2 `Map.union` sub1
 
 checkClass :: Type -> TypeClass -> Bool
 checkClass typ (TClass _ fun) = fun typ
@@ -420,7 +407,8 @@ inferProg (ProgAST dt dv _) = do
     inferTypeDcl dt
     inferVarDclLazily dv
     inferVarDcl dv
-    unifyAll
+    state <- get
+    unifyAll Map.empty (constraints state)
 
 inferTypeDclLazily :: TypeDclAST -> InferT ()
 inferTypeDclLazily EpsTypeDclAST = return ()
@@ -643,10 +631,12 @@ inferVarDcl (VarDclAST (UntypedVarAST varId _) _ dv _) = do
     case getVar (globalEnv state) varId of
         Just (LazyT e) -> do
             tvar     <- genTVar []
+            let prevLength = length (constraints state)
             (typ, _) <- inferExpr e (initEnv `except` (varId, (ForAll [] tvar)))
             state'   <- get
-            let scheme = gen (globalEnv state') typ
-            put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
+            sub      <- unifyAll Map.empty (List.drop prevLength (constraints state'))
+            let scheme = gen (substitute sub (globalEnv state')) (substitute sub typ)
+            put state'{ globalEnv = (substitute sub (globalEnv state')) `except` (varId, scheme) }
             inferVarDcl dv
         Just (ForAll _ _) -> inferVarDcl dv 
         _ -> error "unknown variable" -- should not happen
@@ -679,15 +669,17 @@ getGlobal varId utilData = do
             return ins
         Just (LazyT e) -> do
             tvar     <- genTVar []
-            (typ, _) <- inferExpr e (TypeEnv (Map.singleton varId (ForAll [] tvar)))
+            let prevLength = length (constraints state)
+            (typ, _) <- inferExpr e (initEnv `except` (varId, (ForAll [] tvar)))
             state'   <- get
-            let scheme = gen (globalEnv state') typ
-            put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
+            sub      <- unifyAll Map.empty (List.drop prevLength (constraints state'))
+            let scheme = gen (substitute sub (globalEnv state')) (substitute sub typ)
+            put state'{ globalEnv = (substitute sub (globalEnv state')) `except` (varId, scheme) }
             ins <- proj scheme
             return ins
         Just (LazyS e s) -> do
             (typ, _)  <- types s Map.empty
-            (typ', _) <- inferExpr e (TypeEnv (Map.singleton varId (ForAll [] typ)))
+            (typ', _) <- inferExpr e (initEnv `except` (varId, (ForAll [] typ)))
             let scheme = gen (globalEnv state) typ
             state'    <- get
             put state'{ globalEnv = (globalEnv state') `except` (varId, scheme) }
@@ -760,9 +752,13 @@ inferExpr (ListExprAST exprs utilData) env = do
 inferExpr (LetInExprAST (UntypedVarAST varId _) expr1 expr2 utilData) env = do
     tvar <- genTVar []
     let env' = env `except` (varId, ForAll [] tvar)
+    state <- get
+    let prevLength = length (constraints state)
     (typ, binds) <- inferExpr expr1 env'
-    let env'' = applyBindings env' binds
-    let scheme = gen env'' typ
+    state' <- get
+    sub    <- unifyAll Map.empty (List.drop prevLength (constraints state'))
+    let env'' = substitute sub (applyBindings env' binds)
+    let scheme = gen env'' (substitute sub typ)
     (typ2, binds') <- inferExpr expr2 (env'' `except` (varId, scheme))
     return (typ2, binds ++ binds')
 

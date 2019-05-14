@@ -5,12 +5,14 @@
 
 
 
-
-
-var fun = x => {
-    x * 10
+var xd = i => {
+    i * 10.0
 }
 
+var uu = xd 5
+
 var main = sys => {
-    fun 6.0
+    let fun = x => {
+    x * 10
+    } in ( fun 10 )
 }
