@@ -130,7 +130,7 @@ data TypeId = TypeId { typeName :: String } deriving Show
 data VarId = VarId { 
                       varName :: String
                     , varType :: BonsaiType                
-                   } deriving Show
+                   }
 
 instance Eq TypeId where
     TypeId s1 == TypeId s2 = s1 == s2 
@@ -143,6 +143,9 @@ instance Eq VarId where
 
 instance Ord VarId where
     VarId s1 _ `compare` VarId s2 _ = s1 `compare` s2    
+
+instance Show VarId where
+    show (VarId n _) = n
 
 data ProgAST = ProgAST TypeDclAST VarDclAST UtilData deriving Show
 
@@ -243,9 +246,11 @@ instance Eq ConstAST where
     (BoolConstAST v1 _) == (BoolConstAST v2 _) = v1 == v2
     (FloatConstAST v1 _) == (FloatConstAST v2 _) = v1 == v2
     (CharConstAST v1 _) == (CharConstAST v2 _) = v1 == v2
+    _ == _ = False
 
 instance Ord ConstAST where
     (IntConstAST v1 _) `compare` (IntConstAST v2 _) = v1 `compare` v2
     (BoolConstAST v1 _) `compare` (BoolConstAST v2 _) = v1 `compare` v2
     (FloatConstAST v1 _) `compare` (FloatConstAST v2 _) = v1 `compare` v2
-    (CharConstAST v1 _) `compare` (CharConstAST v2 _) = v1 `compare` v2    
+    (CharConstAST v1 _) `compare` (CharConstAST v2 _) = v1 `compare` v2
+    _ `compare` _ = EQ

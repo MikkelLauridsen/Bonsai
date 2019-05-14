@@ -11,31 +11,25 @@
 
 
 
+
+
+var iii = o => { o * 4 }
+
 var testt = u => {
-    u * u
+    u * 5.0
 }
 
-var hmm = c => {
-    k => {
-        c * c b>> k
+
+var length::([a] -> Int) = 
+l::[a] => {
+    match l {
+        | []     -> 0
+        | (c:cs) -> 1 + length cs
     }
 }
 
-var uuu = testt 7.0
+var oooOOO = [true, true, false]
 
-var main = sys => {
-    let x = u => {
-        case {
-            | u <= 1 -> 1
-            | u > 1  -> u * (x (u - 1))
-        }
-    }
-    in (x 8.0)
-}
+var iiuu = ['c', 'i', 'o']
 
-var fac = u => {
-    case {
-        | u <= 1 -> 1
-        | u > 1  -> u * (fac (u - 1))
-    }
-}
+var xD = length oooOOO
