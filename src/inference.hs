@@ -588,6 +588,8 @@ inferTypeDcl (TypePolyDclAST name polys cons dt utilData) = do
             inferTypeDcl dt
         _ -> error "type is not algebraic" -- should not happen
 
+-- looks up input type id in upsilon and returns the associated algebraic typ upon success
+-- if it cannot be linked to a valid type, an exception is thrown
 getAlgebraicType :: TypeId -> UtilData -> InferT Type
 getAlgebraicType name utilData = do
     state <- get
@@ -595,6 +597,7 @@ getAlgebraicType name utilData = do
         Just typ -> return typ
         Nothing  -> throwError $ UndefinedTypeError name utilData
 
+-- converts a list of generic variables (strings) to a list of typevariables (PolyT)
 mapVars :: [String] -> InferT [Type]
 mapVars [] = return []
 mapVars (v:vs) = do
@@ -602,6 +605,10 @@ mapVars (v:vs) = do
     tvars <- mapVars vs
     return (tvar:tvars)
 
+-- evaluates input list of termconstructors,
+-- and adds the resulting termconstructors to sigma in the infer state
+-- throws an exception if a termconstructor is defined more than once,
+-- or if an illegal typevariable or unknown type is referenced
 evalCons :: [ConsAST] -> TypeId -> Map VarId Type -> UtilData -> InferT (Map VarId Type)
 evalCons [] _ binds _ = return binds
 evalCons (tc:tcs') memberName binds utilData = do
@@ -622,6 +629,9 @@ evalCons (tc:tcs') memberName binds utilData = do
                     put state{ sigma = Set.insert (name, memberTyp, FuncT sig memberTyp)  (sigma state) }
                     evalCons tcs' memberName binds utilData
 
+-- implementation of the types function (refer to the report)
+-- converts an AST from syntactic category Sdt to an instantiated Type
+-- types is used in association with type annotations
 types :: CompTypeAST -> Map VarId Type -> InferT (Type, Map VarId Type)
 types (CompSimpleAST typeId utilData) binds = do
     typ <- lazyIdToTypes typeId utilData
@@ -670,6 +680,7 @@ types (CompFuncAST comp1' comp2' _) binds = do
     (typ2, binds'') <- types comp2' binds'
     return (FuncT typ1 typ2, binds'')
 
+-- helper function for types
 typesList :: [CompTypeAST] -> Map VarId Type -> InferT ([Type], Map VarId Type)
 typesList [] binds = return ([], binds)
 typesList (comp:comps) binds = do
@@ -677,6 +688,9 @@ typesList (comp:comps) binds = do
     (typs, binds'') <- typesList comps binds'
     return (typ:typs, binds'')
 
+-- implementation of function build (refer to the report)
+-- converts an AST from syntactic category Sdt to an instantiated Type
+-- buildSignature is used in association with signatures of termconstructors
 buildSignature :: CompTypeAST -> TypeId -> Map VarId Type -> InferT Type
 buildSignature (CompSimpleAST typeId utilData) _ _ = do 
     typ <- lazyIdToTypes typeId utilData
@@ -711,6 +725,7 @@ buildSignature (CompFuncAST comp1' comp2' _) memberName binds = do
     typ2 <- buildSignature comp2' memberName binds
     return $ FuncT typ1 typ2
 
+-- helper function for buildSignature
 buildSignatureList :: [CompTypeAST] -> TypeId -> Map VarId Type -> InferT [Type]
 buildSignatureList [] _ binds = return []
 buildSignatureList (comp:comps') memberName binds = do
@@ -718,6 +733,10 @@ buildSignatureList (comp:comps') memberName binds = do
     typs <- buildSignatureList comps' memberName binds
     return (typ:typs)
 
+-- converts input typeId to a type
+-- this can be a linear type (if the type id name ends with '*'),
+-- possible 'immediates' are algebraic types and primitives
+-- if the type id cannot be associated with a defined type, an exception is thrown
 lazyIdToTypes :: TypeId -> UtilData -> InferT Type
 lazyIdToTypes id utilData = do
     state <- get
@@ -737,6 +756,9 @@ lazyIdToTypes id utilData = do
                     (Just (name, polys)) -> getAlgebraicType name utilData
                     Nothing -> throwError $ UndefinedTypeError id utilData
 
+-- helper function for lazyIdToTypes,
+-- tries to convert input string to a primitive type
+-- Note that string is considered a primitive
 stringToNonUniquePrim :: String -> Maybe Type
 stringToNonUniquePrim "Int"    = Just $ PrimT IntPrim
 stringToNonUniquePrim "Float"  = Just $ PrimT FloatPrim
@@ -747,6 +769,8 @@ stringToNonUniquePrim "System" = Just $ PrimT SystemPrim
 stringToNonUniquePrim "String" = Just $ ListT (PrimT CharPrim)
 stringToNonUniquePrim _        = Nothing
 
+-- completetely re-instantiates input type,
+-- by substituting all typevariables found in the type with fresh equivalents
 freshType :: Type -> InferT Type
 freshType typ = do
     let tvars = Set.toList $ ftv typ
@@ -754,6 +778,9 @@ freshType typ = do
     let sub = Map.fromList $ zip tvars tvars'
     return $ substitute sub typ
 
+-- first parse on the variable declaration AST
+-- saves all unannotated global variables as LazyT schemes
+-- annotated global variables are saved as LazyS schemes (refer to the definition of Scheme above)
 inferVarDclLazily :: VarDclAST -> InferT ()
 inferVarDclLazily EpsVarDclAST = return ()
 inferVarDclLazily (VarDclAST (UntypedVarAST varId _) e dv _) = do 
@@ -766,8 +793,19 @@ inferVarDclLazily (VarDclAST (TypedVarAST varId s _) e dv _) = do
     put state{ globalEnv = (globalEnv state) `except` (varId, LazyS e s) }
     inferVarDclLazily dv
 
+-- second parse on the variable declaration AST
+-- evaluates all global variables that are saved as Lazy schemes
+-- we only want to evaluate them once, after which they are saved as actual schemes
+-- they may be referenced while evaluating other globals, as such not all globals will be affected explicitly by this parse
+-- However, when this parse has concluded, it is guaranteed that all globals have been inferred, such that we can unify
 inferVarDcl :: VarDclAST -> InferT ()
 inferVarDcl EpsVarDclAST = return ()
+
+-- global declarations are similar to let-in expressions,
+-- which means we must apply a partial unification for unannotated globals after evaluating them
+-- we do this by finding the 'difference' in constraints before and after evaluating the expression
+-- we then apply this unification, to make sure the saved type for the variable is strict enough
+-- we then generalize it with (gen) and store it
 inferVarDcl (VarDclAST (UntypedVarAST varId _) _ dv _) = do
     state <- get
     case getVar (globalEnv state) varId of
@@ -783,6 +821,8 @@ inferVarDcl (VarDclAST (UntypedVarAST varId _) _ dv _) = do
         Just (ForAll _ _) -> inferVarDcl dv 
         _ -> error "unknown variable" -- should not happen
 
+-- for annotated globals, we generalize the annotated type and store it instead,
+-- this way we do not need to perform a partial unification
 inferVarDcl (VarDclAST (TypedVarAST varId _ _) _ dv utilData) = do
     state <- get
     case getVar (globalEnv state) varId of
@@ -797,6 +837,15 @@ inferVarDcl (VarDclAST (TypedVarAST varId _ _) _ dv utilData) = do
         Just (ForAll _ _) -> inferVarDcl dv
         _ -> error "unknown variable" -- should not happen
 
+-- getGlobal is a helper function for the (var) infer rule,
+-- which handles referencing of global variables
+-- this may include evaluation of Lazy schemes,
+-- which is also why the second parse on the variable declaration AST may not evaluate all globals,
+-- as they may be evaluated while referencing globals!
+-- as such, we see the same behavior here for unannotated globals, in which we perform a partial unification
+-- besides this, we also handle the case in which the global has already been referenced,
+-- here we make sure to update linear types, such that they are not valid the next time they are referenced
+-- Note that we always instantiate the referenced scheme with (proj), to ensure we do not tamper with polymorphism of functions
 getGlobal :: VarId -> UtilData -> InferT Type
 getGlobal varId utilData = do
     state <- get
