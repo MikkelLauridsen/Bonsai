@@ -965,6 +965,10 @@ inferExpr (TupleExprAST exprs _) env = do
     (typs, binds) <- inferExprs exprs env
     return (TuplT typs, binds)
 
+-- implementation of the (list) infer rule
+-- this rule is similar to (tuple), but here we must account for two more things:
+--   1. the empty list is handled by generating an unbound typevariable
+--   2. all inferred types must be bound to each other, so we add constraints between the first element's type and all the others
 inferExpr (ListExprAST exprs utilData) env = do
     (typs, binds) <- inferExprs exprs env
     case typs of
