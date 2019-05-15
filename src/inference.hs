@@ -879,7 +879,18 @@ getGlobal varId utilData = do
             return ins
         _ -> throwError $ VariableScopeError varId utilData
 
+-- implementation of infer rules of expressions
+-- these rules always carry a type environment and an expression AST
+-- a pair of an inferred type as well as a list of linear bindings is always returned
+-- the linear bindings represent the splitting of type environments,
+-- as we use returned bindings in the same manner!
 inferExpr :: ExprAST -> TypeEnv -> InferT (Type, [Binding])
+
+-- implementation of the (var) infer rule
+-- we differentiate between global and local environments in the implementation
+-- we first check the local environment, if the variable is bound there, returns the instantiated type (proj)
+-- if not, we call function getGlobal and return the result
+-- Note that no returned bounds are necessary for global referencing, as we save the global environment in the infer state
 inferExpr (VarExprAST varId utilData) env =
     case getVar env varId of
         Just scheme@(ForAll vars typ) -> do
@@ -892,10 +903,15 @@ inferExpr (VarExprAST varId utilData) env =
             ins <- getGlobal varId utilData
             return (ins, [])
 
+-- implementation of (const) infer rule
+-- returns an instantiated type corresponding to input const AST
 inferExpr (ConstExprAST c _) _ = do 
     typ <- inferConst c
     return (typ, [])
 
+-- implementation of (ter) infer rule
+-- returns a 'fresh copy' of the signature associated with input type id
+-- throws an exception is the type id cannot be associated with a termconstructor
 inferExpr (TypeExprAST typeId utilData) _ = do
     state <- get
     case getSignature (sigma state) typeId of
@@ -904,20 +920,36 @@ inferExpr (TypeExprAST typeId utilData) _ = do
             typ' <- freshType typ
             return (typ', [])
 
+-- implementation of the (paren) infer rule
+-- returns the result of inferring the immediate expression
 inferExpr (ParenExprAST expr _) env = inferExpr expr env
 
+-- implementation of the (lambda-1) infer rule
+-- generates a new typevariable to represent the variable id,
+-- when inferring the expression
+-- returns a function type from the (possibly constrained) typevariable,
+-- to the inferred type of the expression, along with the linear binds from the call 
 inferExpr (LambdaExprAST (UntypedVarAST varId _) expr _) env = do
     tvar <- genTVar []
     let env' = env `except` (varId, ForAll [] tvar)
     (typ, bindings) <- inferExpr expr env'
     return (FuncT tvar typ, bindings)
 
+-- implementation of the (lambda-2) infer rule
+-- this rule differs from the above in that we expect the type of the annotation
+-- as such, we do not need to generate a typevariable
 inferExpr (LambdaExprAST (TypedVarAST varId s utilData) expr _) env = do
     (typ', _) <- types s Map.empty
     let env' = env `except` (varId, ForAll [] typ')
     (typ, bindings) <- inferExpr expr env'
     return (FuncT typ' typ, bindings)
 
+-- implementation of the (app) infer rule
+-- infers both expressions and generates a typevariable
+-- adds a constraint between the type inferred by expr1
+-- and a function type from the type inferred by expr2 and the typevariable
+-- returns the typevariable to denote the (possibly constrained) resulting type
+-- also returns the linear binds of both calls
 inferExpr (FunAppExprAST expr1 expr2 utilData) env = do
     (typ1, binds)  <- inferExpr expr1 env
     let env' = applyBindings env binds
@@ -926,6 +958,9 @@ inferExpr (FunAppExprAST expr1 expr2 utilData) env = do
     addConstraint typ1 (FuncT typ2 tvar) utilData
     return (tvar, binds ++ binds')
 
+-- implementation of the (tuple) infer rule
+-- infers all immediate expressions and returns a tuple type with the resulting types
+-- also returns the linear binds from all the calls
 inferExpr (TupleExprAST exprs _) env = do
     (typs, binds) <- inferExprs exprs env
     return (TuplT typs, binds)
