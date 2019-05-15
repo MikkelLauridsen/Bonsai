@@ -9,7 +9,17 @@ var xd = i => {
     i * 10.0
 }
 
-var uu = xd 5
+var oo = o => {
+    p => {
+        p ++ o
+    }
+}
+
+var pp = oo [5] [4]
+
+var ll = oo [true, false] [false, false]
+
+var uu = xd 5.0
 
 var main = sys => {
     let fun = x => {

@@ -1,3 +1,8 @@
+-- constraint based inference type system for Bonsai
+-- interface:
+--   1. function 'infer' takes a filepath and AST,
+--      and returns an error message if the AST cannot be well-typed.
+--      Otherwise, returns nothing
 module Inference
     (
       infer
@@ -12,6 +17,9 @@ import Control.Monad.State
 import Prettifier
 import Actions
 
+-- A typeclass has a name and a function,
+-- used to establish whether a given type is
+-- accepted by the class
 data TypeClass = TClass String (Type -> Bool)
 
 instance Eq TypeClass where
@@ -23,12 +31,13 @@ instance Ord TypeClass where
 instance Show TypeClass where
     show (TClass name _) = name
 
+-- direct implementation of type category 'Typ'
 data Type = PrimT Prim
           | FuncT Type Type
           | TuplT [Type]
           | ListT Type
           | AlgeT TypeId [Type]
-          | UniqT Type Bool
+          | UniqT Type Bool -- rather than splitting environments, we tag linear types with a 'valid' bool 
           | PolyT TypeVar
           deriving (Eq, Ord)
 
@@ -42,17 +51,26 @@ instance Show Type where
     show (UniqT typ _)               = show typ ++ "*"
     show (PolyT tvar@(TVar _ _))     = show tvar
     
--- a termconstructor has a name an associated type and optionally a signature
+-- a termconstructor has a name, an associated type and a signature
+-- const termconstructors have their membertype as signature.
+-- function termconstructors have signature: types(s in Sdt) -> memberType
 type TermConstructor = (TypeId, Type, Type)
 
+-- Sig is a set of termconstructors
 type Sig = Set TermConstructor
 
+-- Ups is a map of algebraic type names to actual algebraic types
 type Ups = Map TypeId Type
 
+-- an inference constraint contains two types and utility information for error messages
 type Constraint = (Type, Type, UtilData)
 
+-- a substitution is a map of typevariables to types,
+-- and is used to replace typevariables which have been bound
 type Substitution = Map TypeVar Type
 
+-- a typevariable has a name and a list of typeclasses it is restricted by
+-- it may only be bound to types that are 'in' all its typeclasses
 data TypeVar = TVar String [TypeClass]
 
 instance Eq TypeVar where
@@ -62,9 +80,14 @@ instance Ord TypeVar where
     TVar name1 _ `compare` TVar name2 _ = name1 `compare` name2
 
 instance Show TypeVar where
-    show (TVar name []) = name
+    show (TVar name [])      = name
     show (TVar name classes) = name ++ "<<" ++ ([show class' | class' <- init classes] >>= (++ ", ")) ++ show (last classes) ++ ">>"
 
+-- besides the scheme introduced in the report,
+-- we introduce to lazy schemes for global declarations:
+--  1. LazyT denotes an unevaluated unannotated global variable
+--  2. LazyS denotes an unevaluated annotated global variable
+-- these will be replaced by actual schemes upon evaluation
 data Scheme = ForAll [TypeVar] Type
             | LazyT ExprAST
             | LazyS ExprAST CompTypeAST
@@ -72,18 +95,27 @@ data Scheme = ForAll [TypeVar] Type
 instance Show Scheme where
     show (ForAll _ typ) = show typ
     show (LazyT _)      = "e"
-    show (LazyS _ _)      = "e::s"
+    show (LazyS _ _)    = "e::s"
 
--- type-environment type
+-- a type environment is a map from variable ids to schemes
+-- we use both a local and global environment
 newtype TypeEnv = TypeEnv (Map VarId Scheme) deriving Show
 
--- type-environment binding format
+-- type environment binding format
 type Binding = (VarId, Scheme)
 
+-- we define a class, Subsitutable,
+-- which provides a function, ftv, used to find all typevariables present in deriving types
+-- Function substitute applies an input substitution on a deriving type
 class Substitutable a where
     ftv :: a -> Set TypeVar
     substitute :: Substitution ->  a -> a
 
+-- Type is the first deriving type.
+-- we recursively traverse the possible dataconstructors,
+-- to find all typevariables and:
+--  1. return a set of them when using ftv
+--  2. replace them if bound in the substitution when using substitute
 instance Substitutable Type where
     ftv (PrimT _)         = Set.empty
     ftv (FuncT typ1 typ2) = (ftv typ1) `Set.union` (ftv typ2)
@@ -101,6 +133,12 @@ instance Substitutable Type where
     substitute sub (UniqT typ valid) = UniqT (substitute sub typ) valid
     substitute sub typ@(PolyT var)   = Map.findWithDefault typ var sub
 
+-- We also need to be able to find free typevariables in Schemes,
+-- as well as apply substitutions for the let-in and var-decl ct-rules
+-- ftv and substitute have no effect on lazy schemes
+-- the actual Scheme shows what 'free typevariable' means:
+-- A typevariable is free if it appears in either the type or the list of typevariables,
+-- but not in both. In other words, we can instantiate it with no negative effects on the inference
 instance Substitutable Scheme where
     ftv (ForAll vars typ) = (ftv typ) `Set.difference` Set.fromList vars
     ftv (LazyT _)         = Set.empty
@@ -110,16 +148,24 @@ instance Substitutable Scheme where
     substitute sub scheme@(LazyT _)   = scheme
     substitute sub scheme@(LazyS _ _) = scheme
 
+-- For lists of substitutable types, 
+-- we union the set of free typevariables provides by applying ftv to all elements
+-- as for substitute, we apply the substitution to each element and return the mapped list
 instance Substitutable a => Substitutable [a] where
-    ftv = List.foldr (Set.union . ftv) Set.empty
+    ftv l = List.foldr (Set.union . ftv) Set.empty l
 
-    substitute = fmap . substitute -- http://dev.stephendiehl.com/fun/006_hindley_milner.html
+    substitute sub l = (fmap . substitute) sub l -- http://dev.stephendiehl.com/fun/006_hindley_milner.html
 
+-- For type environments, we use ftv on the list of schemes, 
+-- which we supported above
+-- as for substitute, we apply the substitution to each scheme in the map
 instance Substitutable TypeEnv where
     ftv (TypeEnv env) = ftv (Map.elems env)
 
     substitute sub (TypeEnv env) = TypeEnv (Map.map (substitute sub) env)
 
+-- We now introduce the inference monad.
+-- First, we define TypeError, which represents exceptions
 data TypeError = LinearTypeError Type UtilData
                | VariableScopeError VarId UtilData
                | VariableRedefinitionError VarId UtilData
@@ -138,6 +184,16 @@ data TypeError = LinearTypeError Type UtilData
                | LengthMismatchError UtilData
                | DebugError String UtilData
 
+-- then we introduce InferState,
+-- which holds the 'state' of the inference run
+-- It holds:
+--  1. next, which is used to generate unique typevariable names
+--  2. globalEnv, which is the type environment for global variables
+--  3. constraints, which holds all gathered constraints
+--  4. sigma, which represents all valid termconstructors
+--  5. upsilon, which is a map from type ids to valid algebraic types
+--  6. lsigma, which holds pairs of algebraic type names and their corresponding typevariable names (used to define termconstructors)
+--  7. debug, which is a String of all 'states' of constraints when unifying
 data InferState = InferState { 
                                next        :: Integer
                              , globalEnv   :: TypeEnv
@@ -148,15 +204,23 @@ data InferState = InferState {
                              , debug       :: String
                              }
 
+-- now we define the actual Monad
+-- it is a transformer monad of Except T and State:
+--  1. ExceptT allows us to throw exceptions of TypeError
+--  2. State allows us to 'get' and 'put' a state of InferState
 type InferT a = ExceptT TypeError (State InferState) a
 
+-- the initial state stored in the InferState instance of the monad
 initState = InferState { next = 0, constraints = [], sigma = Set.empty, upsilon = Map.empty, lsigma = Set.empty, debug = "", globalEnv = TypeEnv Map.empty }
 
+-- runInferT evaluates an inference monad,
+-- and either returns an error message or Nothing
 runInferT :: InferT Substitution -> Maybe String
 runInferT m = case evalState (runExceptT m) initState of
     (Left err) -> Just $ evalError err
     (Right _)  -> Nothing
 
+-- evalError converts a TypeError instance to string
 evalError :: TypeError -> String
 evalError (LinearTypeError typ utilData)                      = formatErr ("instance of unique type '" ++ show typ ++ "' cannot be used more than once") utilData
 evalError (VariableScopeError varId utilData)                 = formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData
@@ -176,12 +240,16 @@ evalError (MatchPatternMismatchError typ pat utilData)        = formatErr ("type
 evalError (LengthMismatchError utilData)                      = formatErr ("cannot match types of different numbers of immediates") utilData
 evalError (DebugError msg utilData)                           = formatErr msg utilData
 
+-- genTVar generates the 'next' typevariable with input typeclasses,
+-- and updates the infer state, to point at the 'next' typevariable
 genTVar :: [TypeClass] -> InferT Type
 genTVar classes = do
     state <- get
     put state{ next = next state + 1 }
     return $ PolyT (TVar ("a" ++ show (next state)) classes)
 
+-- 'refreshes' a list of typevariables.
+-- That is, generates new typevariables with the same typeclasses
 freshTVars :: [TypeVar] -> InferT [Type]
 freshTVars [] = return []
 freshTVars ((TVar _ classes):ts) = do
@@ -206,26 +274,32 @@ getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (
 
 -- utility functions
 
+-- add/replace a binding in the input type environment
 except :: TypeEnv -> Binding -> TypeEnv
 except (TypeEnv env) (var, scheme) = TypeEnv $ Map.insert var scheme env
 
+-- lookup in the input type environment
 getVar :: TypeEnv -> VarId -> Maybe Scheme
 getVar (TypeEnv env) varId = Map.lookup varId env
 
 -- checks whether the input termconstructor (by name)
--- is defined in input set of Algebraic types
+-- is defined in input set of termconstructors
 has :: Sig -> TypeId -> Bool
 has sigma t =
     case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
         Nothing            -> False
         (Just (_, _, _)) -> True
 
+-- tries to find the termconstructor with input type id
+-- returns the signature of the constructor if search was successful
 getSignature :: Sig -> TypeId -> Maybe Type
 getSignature sigma t =
     case find (\(t', _, _) -> t' == t) (Set.toList sigma) of
         Nothing            -> Nothing
         (Just (_, _, typ)) -> Just typ
         
+-- tries to find the termconstructor with input type id
+-- returns it upon success
 getTermConstructor :: Sig -> TypeId -> Maybe TermConstructor
 getTermConstructor sigma t = find (\(t', _, _) -> t' == t) (Set.toList sigma)
         
