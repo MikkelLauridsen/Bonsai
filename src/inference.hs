@@ -257,7 +257,7 @@ freshTVars ((TVar _ classes):ts) = do
     tvars <- freshTVars ts
     return (tvar:tvars)
 
--- error message creation
+{--#-- ERROR MESSAGE FORMATTING --#--}
 
 -- returns a formated error message
 -- based on input message and utility data
@@ -272,7 +272,7 @@ formatErr err UtilData{position=pos, sourceLine=line} =
 getIndicator :: Int -> Int -> String
 getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')
 
--- utility functions
+{--#-- SET/MAP UTILITY --#--}
 
 -- add/replace a binding in the input type environment
 except :: TypeEnv -> Binding -> TypeEnv
@@ -303,22 +303,34 @@ getSignature sigma t =
 getTermConstructor :: Sig -> TypeId -> Maybe TermConstructor
 getTermConstructor sigma t = find (\(t', _, _) -> t' == t) (Set.toList sigma)
         
--- unification
+{--#-- UNIFICATION --#--}
 
+-- takes a subsitution (initially empty) and a list of constraints
+-- keeps unifying until the list is empty or an exception is thrown
+-- composes the new substitution with the old
 unifyAll :: Substitution -> [Constraint] -> InferT Substitution
 unifyAll sub [] = return sub
 unifyAll sub cs@((typ1, typ2, utilData):c') = do
     state <- get
-    put state{ debug = debug state ++ "\n\n" ++ (List.foldr ((++) . (\(t1,t2,_) -> (show t1 ++ " :: " ++ show t2 ++ "\n"))) "" cs) }
+    put state{ debug = debug state ++ "\n\n" ++ (List.foldr ((++) . (\(t1,t2,_) -> (show t1 ++ " :: " ++ show t2 ++ "\n"))) "" cs) } -- update debug field
     (sub', c'') <- unify typ1 typ2 utilData c'
     unifyAll (sub' `compose` sub) c''
 
+-- unifies two types and returns a pair,
+-- consisting of a new substitution and an updated list of constraints
+-- the input list of constraints may be appended or substituted upon
 unify :: Type -> Type -> UtilData -> [Constraint] -> InferT (Substitution, [Constraint])
+
+-- check whether two primitives are equal,
+-- if not: throw an exception
 unify typ1@(PrimT prim1) typ2@(PrimT prim2) utilData c' =
     if prim1 == prim2
         then return (Map.empty, c')
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
+-- unify two type variables,
+-- substitute both for a new one with typeclasses of both original typevariables
+-- this substitution is applied to the list of constraints
 unify (PolyT var1@(TVar _ classes1)) (PolyT var2@(TVar _ classes2)) _ c' = do
     tvar  <- genTVar classes'
     let sub = Map.fromList [(var1, tvar), (var2, tvar)]
@@ -327,6 +339,9 @@ unify (PolyT var1@(TVar _ classes1)) (PolyT var2@(TVar _ classes2)) _ c' = do
     where
         classes' = classes1 `List.union` classes2
 
+-- substitute typevariable (left) with a non-typevariable type,
+-- if it conforms to the typeclasses of the typevariable
+-- this results in a substitution, which is applied to the list of constraints
 unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData c' =
     if List.foldr ((&&) . (checkClass typ2)) True classes
         then return (sub, List.map substituteConstraint c')
@@ -335,6 +350,9 @@ unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData c' =
         sub = Map.singleton var typ2
         substituteConstraint = \(t1, t2, ud) -> (substitute sub t1, substitute sub t2, ud)
 
+-- substitute typevariable (right) with a non-typevariable type,
+-- if it conforms to the typeclasses of the typevariable
+-- this results in a substitution, which is applied to the list of constraints
 unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData c' =
     if List.foldr ((&&) . (checkClass typ1)) True classes
         then return (sub, List.map substituteConstraint c')
@@ -343,15 +361,21 @@ unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData c' =
         sub = Map.singleton var typ1
         substituteConstraint = \(t1, t2, ud) -> (substitute sub t1, substitute sub t2, ud)
 
+-- unify two function types, append s1 'uni' t1 and s2 'uni t2 to the list of constraints        
 unify (FuncT s1 s2) (FuncT t1 t2) utilData c' = return (Map.empty, c' ++ [(s1, t1, utilData), (s2, t2, utilData)])
 
+-- unify two tuple types, append s1 'uni' t1 ... sn 'uni' tn to the list of constraints
 unify typ1@(TuplT typs1) typ2@(TuplT typs2) utilData c' =
     if length typs1 == length typs2
         then return (Map.empty, c' ++ (List.map (\(t1, t2) -> (t1, t2, utilData)) (zip typs1 typs2)))
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
+-- unify two list types, append s1 'uni' t1 to the list of constraints
 unify (ListT typ1) (ListT typ2) utilData c' = return (Map.empty, c' ++ [(typ1, typ2, utilData)])
 
+-- unify two algebraic types, check whether names and lists of polymorphic types are equal in length
+-- if so, check whether the types are legal
+-- if so, append s1 'uni' t1 ... sn 'uni' tn to the list of constraints
 unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData c' = do
     state <- get
     if name1 == name2 && length typs1 == length typs2
@@ -360,21 +384,29 @@ unify typ1@(AlgeT name1 typs1) typ2@(AlgeT name2 typs2) utilData c' = do
             Nothing -> throwError $ UndefinedTypeError name1 utilData
         else throwError $ TypeMismatchError typ1 typ2 utilData
 
+-- unify two linear types, check whether they are both valid
+-- if so, append s1 'uni' t1 to the list of constraints
 unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData c' =
     case (valid1, valid2) of
         (False, True)  -> throwError $ LinearTypeError typ1 utilData
         (True, False)  -> throwError $ LinearTypeError typ2 utilData
         _              -> return (Map.empty, c' ++ [(typ1', typ2', utilData)])
 
--- catch all
+-- catch all remaining cases and throw an exception
 unify typ1 typ2 utilData _ = throwError $ TypeMismatchError typ1 typ2 utilData
 
+-- compose two substitutions: https://github.com/sdiehl/write-you-a-haskell/blob/master/chapter7/poly_constraints/src/Infer.hs
 compose :: Substitution -> Substitution -> Substitution
 compose sub1 sub2 = Map.map (substitute sub1) sub2 `Map.union` sub1
 
+{--#-- TYPECLASS UTILITY --#--}
+
+-- checks whether input type is accepted by input typeclass
 checkClass :: Type -> TypeClass -> Bool
 checkClass typ (TClass _ fun) = fun typ
 
+-- converts input list of type ids to a list of typeclasses
+-- throws an exception, if an unknown id is used
 genClasses :: [TypeId] -> UtilData -> InferT [TypeClass]
 genClasses [] _ = return []
 genClasses (t:ts) utilData = do
@@ -382,6 +414,8 @@ genClasses (t:ts) utilData = do
     cs <- genClasses ts utilData
     return (c:cs)
 
+-- convert input type id to a typeclass
+-- throws an exception if the type id is unknown
 genClass :: TypeId -> UtilData -> InferT TypeClass
 genClass t utilData =
     case typeName t of
@@ -392,12 +426,15 @@ genClass t utilData =
         "Bi"   -> return biClass
         _      -> throwError $ UndefinedTypeClassError t utilData
 
+-- legal typeclasses
 numClass  = TClass "Num" numFun 
 eqClass   = TClass "Eq" eqFun
 ordClass  = TClass "Ord" ordFun
 showClass = TClass "Show" showFun
 biClass   = TClass "Bi" biFun
 
+-- recursive typeclass definitions
+-- for more information, refer to the report
 numFun :: Type -> Bool
 numFun (PrimT IntPrim)          = True
 numFun (PrimT FloatPrim)        = True
@@ -440,18 +477,24 @@ biFun (UniqT typ _)              = biFun typ
 biFun (PolyT (TVar _ classes))   = elem biClass classes
 biFun _                          = False
 
--- constraint rules begin
+{--#-- CONSTRAINT RULES --#--}
 
+-- appends input types and utildata to list of constraints in the infer state
 addConstraint :: Type -> Type -> UtilData -> InferT ()
 addConstraint typ1 typ2 utilData = do
     state <- get
     put state{ constraints = constraints state ++ [(typ1, typ2, utilData)] }
 
+-- appends list of constraints to the list of constraints in the infer state
 addConstraints :: [Constraint] -> InferT ()
 addConstraints constraints' = do
     state <- get
     put state{ constraints = constraints state ++ constraints' }
 
+-- implementation of the (proj) rule
+-- instantiates input scheme to type,
+-- by substituting all typevariables in 'vars'
+-- Note that typeclasses are kept!
 proj :: Scheme -> InferT Type
 proj (ForAll vars typ) = do
     vars' <- mapM fresh vars
@@ -460,30 +503,51 @@ proj (ForAll vars typ) = do
     where
         fresh = \(TVar _ classes) -> genTVar classes
 
+-- implementation of (gen) rule,
+-- returns a Scheme with input type,
+-- where the list of vars is equal to the free variables between input type and type environment
 gen :: TypeEnv -> Type -> Scheme -- http://dev.stephendiehl.com/fun/006_hindley_milner.html
 gen env typ = ForAll vars typ
     where
         vars = Set.toList (ftv typ `Set.difference` ftv env)
 
+-- initial type environment holding I/O related variables
 stdin'  = (VarId "stdin" Untyped, ForAll [] (UniqT (PrimT FilePrim) True))
 stdout' = (VarId "stdout" Untyped, ForAll [] (UniqT (PrimT FilePrim) True))
 initEnv = TypeEnv $ Map.fromList [stdin', stdout']
 
+-- infers input AST and returns an error message,
+-- if no substitution resulting in a well-typed AST exists
 infer :: FilePath -> ProgAST -> Maybe String
 infer path ast =
     case runInferT (inferProg ast) of
         Nothing  -> Nothing
         Just msg -> Just (path ++ ":" ++ msg)
 
-inferProg :: ProgAST -> InferT Substitution -- TODO: typeDcl and main!
-inferProg (ProgAST dt dv _) = do
+-- implementation of (prog) rule,
+-- infers type- and variable declarations
+-- then checks whether main is defined
+-- if so, adds a constraint to the type of main,
+-- such that it conforms to the System* parameter
+-- then tries to unify all gathered constraints        
+inferProg :: ProgAST -> InferT Substitution
+inferProg (ProgAST dt dv utilData) = do
     inferTypeDclLazily dt
     inferTypeDcl dt
     inferVarDclLazily dv
     inferVarDcl dv
     state <- get
-    unifyAll Map.empty (constraints state)
+    case getVar (globalEnv state) (VarId "main" Untyped) of
+        Just (ForAll _ typ) -> do
+            tvar <- genTVar []
+            addConstraint typ (FuncT (UniqT (PrimT SystemPrim) True) tvar) utilData
+            state' <- get
+            unifyAll Map.empty (constraints state')
+        _ -> throwError $ VariableScopeError (VarId "main" Untyped) utilData
 
+-- first parse on type declaration AST,
+-- gathers all algebraic type names and associated generic variables (uninstantiated typevariables)
+-- throws an exception if a type is defined more than once
 inferTypeDclLazily :: TypeDclAST -> InferT ()
 inferTypeDclLazily EpsTypeDclAST = return ()
 inferTypeDclLazily (TypeDclAST name _ dt utilData) = do
@@ -505,6 +569,10 @@ inferTypeDclLazily (TypePolyDclAST name polys _ dt utilData) = do
     where
         vars = List.map varName polys
 
+-- second parse on type declaration AST,
+-- defines legal termconstructors and stores them in the sigma infer state field
+-- throws an exception if the same termconstructor is defined more than once,
+-- or if an illegal generic variable or unknown algebraic type is referenced
 inferTypeDcl :: TypeDclAST -> InferT ()
 inferTypeDcl EpsTypeDclAST = return ()
 inferTypeDcl (TypeDclAST name cons dt utilData) = do
