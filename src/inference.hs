@@ -979,6 +979,12 @@ inferExpr (ListExprAST exprs utilData) env = do
             addConstraints [(typ, typ', utilData) | typ' <- typs']
             return (ListT typ, binds) 
 
+-- implementation of the (let-1) infer rule
+-- for the unannotated let-in expression, we must generate a new typevariable
+-- we use this in the environment in which we evaluate expr1
+-- then we perform a partial unification by unifying all constraints gathered while inferring expr1
+-- we then generalize the resulting substituted type and put it in the environment in which we infer expr2
+-- we then return the resulting type as well as the linear binds from the two calls
 inferExpr (LetInExprAST (UntypedVarAST varId _) expr1 expr2 utilData) env = do
     tvar <- genTVar []
     let env' = env `except` (varId, ForAll [] tvar)
@@ -992,6 +998,10 @@ inferExpr (LetInExprAST (UntypedVarAST varId _) expr1 expr2 utilData) env = do
     (typ2, binds') <- inferExpr expr2 (env'' `except` (varId, scheme))
     return (typ2, binds ++ binds')
 
+-- implementation of the (let-2) infer rule
+-- as we have an annotated type here, we do not need to perform a partial unification
+-- instead, we deduce the annotated type and generalize it, as we would have done after unifying in (let-1)
+-- we then infer expr2 and return the resulting type, as well as the linear binds from both calls
 inferExpr (LetInExprAST (TypedVarAST varId s _) expr1 expr2 utilData) env = do
     state <- get
     (typ1, _) <- types s Map.empty
@@ -1003,6 +1013,10 @@ inferExpr (LetInExprAST (TypedVarAST varId s _) expr1 expr2 utilData) env = do
     (typ2, binds') <- inferExpr expr2 (env'' `except` (varId, scheme))
     return (typ2, binds ++ binds')
 
+-- implementation of the (case) infer rule
+-- we infer predicates and branches in pairs
+-- predicates must be wildcards or boolean values, as such we add constraints to boolean values
+-- we also need to make sure that all branches are of the same type, as such we add constraints between these
 inferExpr (CaseExprAST branches utilData) env = do
     typs <- inferCaseBranches branches env
     case typs of
@@ -1011,6 +1025,9 @@ inferExpr (CaseExprAST branches utilData) env = do
             addConstraints [(typ, typ', utilData) | typ' <- typs']
             return (typ, [])
 
+-- implementation of the (match) infer rule
+-- we first infer expr1 and use the resulting type when evaluating patterns
+-- as with the case rule, we need the resulting types to be equal, as such we add constraints between these
 inferExpr (MatchExprAST expr branches utilData) env = do
     (typ1, binds) <- inferExpr expr env
     let env' = applyBindings env binds
@@ -1021,6 +1038,7 @@ inferExpr (MatchExprAST expr branches utilData) env = do
             addConstraints [(typ2, typ2', utilData) | typ2' <- typ2s']
             return (typ2, binds)
 
+-- helper function for inferExpr, which infers a list of expressions
 inferExprs :: [ExprAST] -> TypeEnv -> InferT ([Type], [Binding])
 inferExprs [] _ = return ([], [])
 inferExprs (e:es) env = do
@@ -1029,16 +1047,27 @@ inferExprs (e:es) env = do
     (typs, binds') <- inferExprs es env'
     return (typ:typs, binds ++ binds')
 
+-- helper functionfor inferExpr, which applies linear binds to input type environment
 applyBindings :: TypeEnv -> [Binding] -> TypeEnv
 applyBindings env binds = List.foldr (flip except) env binds
 
+-- helper function for the (case) infer rule,
+-- which infers predicate branch pairs one at a time
+-- if no exception is thrown, a list of resulting branch types is returned
 inferCaseBranches :: [(PredAST, ExprAST)] -> TypeEnv -> InferT [Type]
 inferCaseBranches [] _ = return []
+
+-- if the predicate is a wildcard,
+-- we just infer the branch expression
+-- and perform a recursive call
 inferCaseBranches ((PredWildAST _, expr):branches) env = do
     (typ, _) <- inferExpr expr env
     typs <- inferCaseBranches branches env
     return (typ:typs)
 
+-- if the predicate is an expression,
+-- we infer it and then we infer the branch expression
+-- before a recursive call, we add a constraint to the predicate type, to a boolean primitive
 inferCaseBranches ((PredExprAST expr1 utilData, expr2):branches) env = do
     (typ1, binds) <- inferExpr expr1 env
     let env' = applyBindings env binds
@@ -1047,6 +1076,11 @@ inferCaseBranches ((PredExprAST expr1 utilData, expr2):branches) env = do
     typ2s <- inferCaseBranches branches env
     return (typ2:typ2s)
 
+-- helper function for the (match) infer rule,
+-- which evaluates pattern branch pairs and returns a list of resulting branch types upon success
+-- first, the pattern is evaluated with the match function (refer to the report),
+-- which results in a type other patterns must follow, as well as variable binds
+-- these are used when inferring the branch expression
 inferMatchBranches :: Type -> [(PatternAST, ExprAST)] -> TypeEnv -> InferT [Type]
 inferMatchBranches _ [] _ = return []
 inferMatchBranches typ1 ((pat, expr):branches) env = do
@@ -1056,11 +1090,15 @@ inferMatchBranches typ1 ((pat, expr):branches) env = do
     typs2 <- inferMatchBranches typ1' branches env
     return (typ2:typs2)
 
+-- helper function for inferConst
 binaryFun :: [TypeClass] -> InferT Type
 binaryFun classes = do
     tvar <- genTVar classes
     return $ FuncT tvar (FuncT tvar tvar)
 
+-- implementation of the apply function from the typesystem
+-- returns a fresh instance of the type associated with input constant
+-- refer to the report for more information
 inferConst :: ConstAST -> InferT Type
 inferConst (IntConstAST _ _)   = return $ PrimT IntPrim
 inferConst (BoolConstAST _ _)  = return $ PrimT BoolPrim 
@@ -1138,6 +1176,9 @@ inferConst (ShowConstAST _) = do
     tvar <- genTVar [showClass]
     return $ FuncT tvar (ListT (PrimT CharPrim))
 
+-- this function is used by the match function,
+-- when the type to match upon is a typevariable
+-- we then infer a type from the pattern, which is returned by match
 inferPat :: PatternAST -> InferT (Type, [Binding])
 inferPat (ConstPatternAST c _) = do
     typ <- inferConst c
@@ -1193,6 +1234,8 @@ inferPat (DecompPatternAST pat varId _) = do
     (typ, binds) <- inferPat pat
     return (ListT typ, ((varId, ForAll [] typ):binds))
 
+-- helper function for inferPat, which infers the types of a list of patterns,
+-- and returns the resulting list of types and variable bindings
 inferPats :: [PatternAST] -> InferT ([Type], [Binding])
 inferPats [] = return ([], [])
 inferPats (pat:pats) = do
@@ -1200,11 +1243,24 @@ inferPats (pat:pats) = do
     (typs, binds') <- inferPats pats
     return (typ:typs, binds ++ binds')
 
+-- implementation of the match function
+-- checks whether the input type can be 'matched' with input pattern
+-- upon success, returns a pair consisting of a type the remaining patterns must conform to
+-- and a list of variable bindings
+-- the resulting type is the input type unless it is a typevariable,
+-- in this case we decide the type by inferring the type of the pattern
 match :: Type -> PatternAST -> InferT (Type, [Binding])
+
+-- always accepts a variable pattern, and returns the corresponding binding
 match typ (VarPatternAST varId _) = return (typ, [(varId, ForAll [] typ)])
 
+-- always accepts a wildcard, and does not return any binds
 match typ (WildPatternAST _) = return (typ, [])
 
+-- upon matching a typevariable with a pattern,
+-- infers the type of the pattern, and checks whether it conforms to the typeclasses of the typevariable
+-- if so, adds a constraint between the input type and the pattern type and returns the pattern type,
+-- as it is more strict
 match typ@(PolyT (TVar _ classes)) pat = do
     (typ', binds) <- inferPat pat
     if List.foldr ((&&) . (checkClass typ')) True classes
@@ -1213,11 +1269,17 @@ match typ@(PolyT (TVar _ classes)) pat = do
             return (typ', binds)
         else throwError $ MatchPatternMismatchError typ pat (getUtilDataPat pat)
 
+-- accepts numerals and boolean types if the corresponding pattern is of the same type
 match typ@(PrimT (IntPrim)) (ConstPatternAST (IntConstAST _ _) _)     = return (typ, [])
 match typ@(PrimT (FloatPrim)) (ConstPatternAST (FloatConstAST _ _) _) = return (typ, [])
 match typ@(PrimT (BoolPrim)) (ConstPatternAST (BoolConstAST _ _) _)   = return (typ, [])
 match typ@(PrimT (CharPrim)) (ConstPatternAST (CharConstAST _ _) _)   = return (typ, [])
 
+-- handles the case in which the type is of an algebraic type
+-- and the pattern is a constant termconstructor
+-- we check whether the pattern's termconstructor exists
+-- if so, we check whether the signature of the termconstructor
+-- is the input algebraic type (then it is constant and of the correct type)
 match typ@(AlgeT name _) pat@(TypePatternAST typeId utilData) = do
     state <- get
     case getTermConstructor (sigma state) typeId of
@@ -1228,10 +1290,20 @@ match typ@(AlgeT name _) pat@(TypePatternAST typeId utilData) = do
                 else throwError $ MatchPatternMismatchError typ pat utilData
         (Just _) -> throwError $ MatchPatternMismatchError typ pat utilData
 
+-- upon matching a list type with a cons pattern,
+-- we perform a recursive call and return a list of the resulting type,
+-- as well as the bindings of the recursive call along with the immediate pair
 match (ListT typ') (DecompPatternAST pat' varId _) = do
     (typ'', binds) <- match typ' pat'
     return (ListT typ'', ((varId, ForAll [] (ListT typ'')):binds))
 
+-- handles the case in which the type is of an algebraic type
+-- and the pattern is a function termconstructor
+-- we check whether the pattern's termconstructor exists
+-- if so, we check whether the signature of the termconstructor
+-- is a function from one type to the input algebraic type
+-- if so, we create a fresh instance of the parameter type,
+-- and use it in a recursive call with the immediate pattern
 match typ@(AlgeT name typs) pat@(TypeConsPatternAST typeId pat' utilData) = do
     state <- get
     case getTermConstructor (sigma state) typeId of
@@ -1246,10 +1318,17 @@ match typ@(AlgeT name typs) pat@(TypeConsPatternAST typeId pat' utilData) = do
                 else throwError $ MatchPatternMismatchError typ pat utilData
         Just _ -> throwError $ MatchPatternMismatchError typ pat utilData
 
+-- upon matching a tuple type with a a tuple pattern,
+-- we perform recursive calls on pairs of immediates,
+-- and return a tuple type of the resulting types
+-- as well as the gathered variable binds
 match typ@(TuplT typs) (TuplePatternAST ps utilData) = do 
     (typs, binds) <- matchMultiple typs ps utilData
     return (TuplT typs, binds)
 
+-- upon match a list type with a list pattern,
+-- we match all immediate patterns with the list type,
+-- and return the resulting type as well as gathered variable binds
 match typ@(ListT typ') (ListPatternAST ps utilData) = do 
     (typs'', binds) <- matchMultiple typs' ps utilData
     case typs'' of
@@ -1258,8 +1337,12 @@ match typ@(ListT typ') (ListPatternAST ps utilData) = do
     where
         typs' = List.take (length ps) (repeat typ')
 
+-- catch all other cases and throw an exception
 match typ pat = throwError $ MatchPatternMismatchError typ pat (getUtilDataPat pat)
 
+-- helper function for the match function, 
+-- which matches a list of types with a list of patterns
+-- and returns the resulting types and binds
 matchMultiple :: [Type] -> [PatternAST] -> UtilData -> InferT ([Type], [Binding])
 matchMultiple [] [] _       = return ([], [])
 matchMultiple [] _ utilData = throwError $ LengthMismatchError utilData
@@ -1269,6 +1352,8 @@ matchMultiple (t:ts) (p:ps) utilData = do
     (typs, binds') <- matchMultiple ts ps utilData
     return $ (typ:typs, binds ++ binds')
 
+-- helper function for the match function,
+-- which returns a substitution based on a list of PolyT types and substituting types
 analyzeVars :: [Type] -> [Type] -> Substitution -> InferT Substitution
 analyzeVars [] [] sub = return sub
 analyzeVars ((PolyT tvar):t1s) (t2:t2s) sub = analyzeVars t1s t2s (Map.insert tvar t2 sub)
