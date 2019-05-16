@@ -1,8 +1,14 @@
 module Semantics
     ( interpret
+    , evalLetIn
     , Values (..)
     , Bindings (..)
     , match
+    , formatErr
+    , compareLists
+    , evalCase
+    , evalMatch
+    , evalExpr
     ) where
 
 import Ast
@@ -26,7 +32,6 @@ data Bindings = MatchFail
               | Bindings [Binding]
               deriving Eq
 
-            
 -- variabel environment type
 type Env = Map VarId Values
 
