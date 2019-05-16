@@ -29,7 +29,7 @@ initUtilData :: UtilData
 initUtilData = UtilData (0, 0, 0) ""
 
 data TypeId = TypeId { typeName :: String } deriving Show
-data VarId = VarId { varName :: String }
+data VarId = VarId { varName :: String } deriving Show
 
 instance Eq TypeId where
     TypeId s1 == TypeId s2 = s1 == s2 
@@ -42,9 +42,6 @@ instance Eq VarId where
 
 instance Ord VarId where
     VarId s1 `compare` VarId s2 = s1 `compare` s2    
-
-instance Show VarId where
-    show (VarId n) = n
 
 data ProgAST = ProgAST TypeDclAST VarDclAST UtilData deriving Show
 
