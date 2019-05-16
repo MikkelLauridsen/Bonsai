@@ -32,7 +32,6 @@ library
       Ast
       Actions
       Prettifier
-      Typesystem
       Inference
       Semantics
   other-modules:

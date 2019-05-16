@@ -50,7 +50,27 @@ instance Show Type where
     show (AlgeT typeId ps)           = typeName typeId ++ "<" ++ ([show typ' | typ' <- init ps] >>= (++ ", ")) ++ show (last ps) ++ ">"
     show (UniqT typ _)               = show typ ++ "*"
     show (PolyT tvar@(TVar _ _))     = show tvar
-    
+
+data Prim = IntPrim
+          | FloatPrim
+          | BoolPrim
+          | CharPrim
+          | FilePrim
+          | SystemPrim
+          deriving (Eq, Ord) 
+
+instance Show Prim where
+    show IntPrim    = "Int"
+    show FloatPrim  = "Float"
+    show BoolPrim   = "Bool"
+    show CharPrim   = "Char"
+    show FilePrim   = "File"
+    show SystemPrim = "System"
+
+type LazySig = Set LazyAlgebraicType 
+
+type LazyAlgebraicType = (TypeId, [String])
+
 -- a termconstructor has a name, an associated type and a signature
 -- const termconstructors have their membertype as signature.
 -- function termconstructors have signature: types(s in Sdt) -> memberType
@@ -512,8 +532,8 @@ gen env typ = ForAll vars typ
         vars = Set.toList (ftv typ `Set.difference` ftv env)
 
 -- initial type environment holding I/O related variables
-stdin'  = (VarId "stdin" Untyped, ForAll [] (UniqT (PrimT FilePrim) True))
-stdout' = (VarId "stdout" Untyped, ForAll [] (UniqT (PrimT FilePrim) True))
+stdin'  = (VarId "stdin", ForAll [] (UniqT (PrimT FilePrim) True))
+stdout' = (VarId "stdout", ForAll [] (UniqT (PrimT FilePrim) True))
 initEnv = TypeEnv $ Map.fromList [stdin', stdout']
 
 -- infers input AST and returns an error message,
@@ -537,13 +557,13 @@ inferProg (ProgAST dt dv utilData) = do
     inferVarDclLazily dv
     inferVarDcl dv
     state <- get
-    case getVar (globalEnv state) (VarId "main" Untyped) of
+    case getVar (globalEnv state) (VarId "main") of
         Just (ForAll _ typ) -> do
             tvar <- genTVar []
             addConstraint typ (FuncT (UniqT (PrimT SystemPrim) True) tvar) utilData
             state' <- get
             unifyAll Map.empty (constraints state')
-        _ -> throwError $ VariableScopeError (VarId "main" Untyped) utilData
+        _ -> throwError $ VariableScopeError (VarId "main") utilData
 
 -- first parse on type declaration AST,
 -- gathers all algebraic type names and associated generic variables (uninstantiated typevariables)
