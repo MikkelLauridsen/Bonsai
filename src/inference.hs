@@ -202,6 +202,7 @@ data TypeError = LinearTypeError Type UtilData
                | UndefinedTypeClassError TypeId UtilData
                | MatchPatternMismatchError Type PatternAST UtilData
                | LengthMismatchError UtilData
+               | InfinityTypeError TypeVar Type UtilData
                | DebugError String UtilData
 
 -- then we introduce InferState,
@@ -258,6 +259,7 @@ evalError (UndefinedTypeClassError typeId utilData)           = formatErr ("unkn
 evalError (TypeMismatchError typ1 typ2 utilData)              = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
 evalError (MatchPatternMismatchError typ pat utilData)        = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
 evalError (LengthMismatchError utilData)                      = formatErr ("cannot match types of different numbers of immediates") utilData
+evalError (InfinityTypeError tvar typ utilData)               = formatErr ("typevariable '" ++ show tvar ++ "' must not occur in substituted type '" ++ show typ ++ "'") utilData
 evalError (DebugError msg utilData)                           = formatErr msg utilData
 
 -- genTVar generates the 'next' typevariable with input typeclasses,
@@ -362,10 +364,11 @@ unify (PolyT var1@(TVar _ classes1)) (PolyT var2@(TVar _ classes2)) _ c' = do
 -- substitute typevariable (left) with a non-typevariable type,
 -- if it conforms to the typeclasses of the typevariable
 -- this results in a substitution, which is applied to the list of constraints
-unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData c' =
-    if List.foldr ((&&) . (checkClass typ2)) True classes
-        then return (sub, List.map substituteConstraint c')
-        else throwError $ TypeClassMismatchError typ1 typ2 utilData
+unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData c' 
+    | occursCheck var typ2 = throwError $ InfinityTypeError var typ2 utilData
+    | otherwise = if List.foldr ((&&) . (checkClass typ2)) True classes
+                    then return (sub, List.map substituteConstraint c')
+                    else throwError $ TypeClassMismatchError typ1 typ2 utilData
     where
         sub = Map.singleton var typ2
         substituteConstraint = \(t1, t2, ud) -> (substitute sub t1, substitute sub t2, ud)
@@ -373,10 +376,11 @@ unify typ1@(PolyT var@(TVar _ classes)) typ2 utilData c' =
 -- substitute typevariable (right) with a non-typevariable type,
 -- if it conforms to the typeclasses of the typevariable
 -- this results in a substitution, which is applied to the list of constraints
-unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData c' =
-    if List.foldr ((&&) . (checkClass typ1)) True classes
-        then return (sub, List.map substituteConstraint c')
-        else throwError $ TypeClassMismatchError typ2 typ1 utilData
+unify typ1 typ2@(PolyT var@(TVar _ classes)) utilData c'
+    | occursCheck var typ1 = throwError $ InfinityTypeError var  typ1 utilData
+    | otherwise = if List.foldr ((&&) . (checkClass typ1)) True classes
+                    then return (sub, List.map substituteConstraint c')
+                    else throwError $ TypeClassMismatchError typ2 typ1 utilData
     where
         sub = Map.singleton var typ1
         substituteConstraint = \(t1, t2, ud) -> (substitute sub t1, substitute sub t2, ud)
@@ -414,6 +418,9 @@ unify typ1@(UniqT typ1' valid1) typ2@(UniqT typ2' valid2) utilData c' =
 
 -- catch all remaining cases and throw an exception
 unify typ1 typ2 utilData _ = throwError $ TypeMismatchError typ1 typ2 utilData
+
+occursCheck :: TypeVar -> Type -> Bool
+occursCheck tvar typ = Set.member tvar $ ftv typ
 
 -- compose two substitutions: https://github.com/sdiehl/write-you-a-haskell/blob/master/chapter7/poly_constraints/src/Infer.hs
 compose :: Substitution -> Substitution -> Substitution
