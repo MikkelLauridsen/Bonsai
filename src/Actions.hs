@@ -29,7 +29,7 @@ import Data.Word (Word8)
 import Unsafe.Coerce (unsafeCoerce) 
 
 getUtilData :: Token -> UtilData
-getUtilData (Token (AlexUserState {currentLine=l, Lexer.position=p, lineNumber=n}) _) = UtilData Untyped (getPosition p n) l
+getUtilData (Token (AlexUserState {currentLine=l, Lexer.position=p, lineNumber=n}) _) = UtilData (getPosition p n) l
 
 getPosition :: AlexPosn -> (Int, Int) -> (Int, Int, Int)
 getPosition (AlexPn _ line column) (_, off) = (line, column, off)
@@ -37,7 +37,7 @@ getPosition (AlexPn _ line column) (_, off) = (line, column, off)
 getUtilDataProg :: TypeDclAST -> VarDclAST -> UtilData
 getUtilDataProg (TypeDclAST _ _ _ utilData) _ = utilData
 getUtilDataProg _ (VarDclAST _ _ _ utilData)  = utilData
-getUtilDataProg _ _                           = UtilData Untyped (0, 0, 0) ""
+getUtilDataProg _ _                           = UtilData (0, 0, 0) ""
 
 getUtilDataExpr :: ExprAST -> UtilData
 getUtilDataExpr (VarExprAST _ utilData)       = utilData
@@ -101,7 +101,7 @@ getUtilDataConst (BiXorConstAST utilData) = utilData
 getUtilDataConst (BiOrConstAST utilData) = utilData
 
 getVarId :: Token -> VarId
-getVarId (Token _ (VarIdToken name)) = VarId name Untyped
+getVarId (Token _ (VarIdToken name)) = VarId name
 getVarId _ = error "Token must be asociated with a var id."
 
 getTypeId :: Token -> TypeId

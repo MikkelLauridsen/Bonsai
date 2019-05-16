@@ -32,7 +32,7 @@ library
       Ast
       Actions
       Prettifier
-      Typesystem
+      Inference
       Semantics
   other-modules:
       Paths_p4
@@ -44,6 +44,7 @@ library
     , base >=4.7 && <5
     , directory
     , bytestring
+    , mtl
   default-language: Haskell2010
 
 executable p4-exe
