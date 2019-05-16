@@ -1,10 +1,14 @@
 module Semantics
-    ( interpret,
-      Values(..),
-      compareLists,
-      formatErr,
-      evalCase,
-      evalLetIn
+    ( interpret
+    , evalLetIn
+    , Values (..)
+    , Bindings (..)
+    , match
+    , formatErr
+    , compareLists
+    , evalCase
+    , evalMatch
+    , evalExpr
     ) where
 
 import Ast
@@ -26,6 +30,7 @@ type Binding = (VarId, Values)
 -- match results, either failure or a list of bindings
 data Bindings = MatchFail
               | Bindings [Binding]
+              deriving Eq
 
 -- variabel environment type
 type Env = Map VarId Values
@@ -157,7 +162,7 @@ interpret path (ProgAST dt dv _) = do
             case maybeEnvg of
                 (Left msg)  -> return $ Left (path ++ ":" ++ msg)
                 (Right envg) -> do
-                    let maybeMain = envg `getVar` (VarId "main" Untyped)
+                    let maybeMain = envg `getVar` (VarId "main")
                     case maybeMain of
                         Nothing -> return $ Left (path ++ ":--:--: error: main is not defined")
                         (Just (LazyValue e)) -> do
@@ -175,7 +180,7 @@ interpret path (ProgAST dt dv _) = do
         -- set up the initial variable environment containing I/O variables
         stdin'  = PredefinedFileValue "stdin" 0
         stdout' = PredefinedFileValue "stdout" 0
-        initEnv = Map.fromList [(VarId "stdin" Untyped, stdin'), (VarId "stdout" Untyped, stdout')] 
+        initEnv = Map.fromList [(VarId "stdin", stdin'), (VarId "stdout", stdout')] 
 
 -- implementation of (typeErk-1) and (typeErk-2)
 -- returns an error message if:
