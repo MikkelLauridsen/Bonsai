@@ -12,8 +12,12 @@ import System.IO
 -- if the result is an error message, it is returned
 -- if the result is an AST, it is formatted to conform to Bonsai's abstract syntax
 prettify :: Either String ProgAST -> String
-prettify (Left err) = err
+prettify (Left err)   = err
 prettify (Right prog) = prettyShow prog 0
+
+toAst :: Either String ProgAST -> String
+toAst (Left err)   = err
+toAst (Right prog) = show prog
 
 -- main starts the interactive interpreter,
 -- interprets a file or outputs an error message
@@ -47,6 +51,7 @@ fromFile file = do
 data UserAction = RunUser String
                 | ExitUser
                 | PrettifyUser String
+                | AstUser String
                 | ErrorUser String
 
 -- getSource recursively chooses a UserAction
@@ -56,8 +61,9 @@ getSource current = do
     line <- cmdPrompt
     case line of
         "@EXIT"     -> return ExitUser
-        "@RUN"      -> return $ RunUser (current >>= (++ "")) -- TODO: try const instead of (++ "") !!
-        "@PRETTIFY" -> return $ PrettifyUser (current >>= (++ ""))
+        "@RUN"      -> return $ RunUser (concat current)
+        "@PRETTIFY" -> return $ PrettifyUser (concat current)
+        "@AST"      -> return $ AstUser (concat current)
         "@RESET"    -> getSource []
         "@UNDO"     -> case current of
                             [] -> return $ ErrorUser "cannot delete an empty string"
@@ -79,6 +85,9 @@ interactive = do
             interactive
         PrettifyUser input -> do
             putStrLn $ prettify (parse input)
+            interactive
+        AstUser input      -> do
+            putStrLn $ toAst (parse input)
             interactive
     where parse = parseBonsai "<stdin>"
 
