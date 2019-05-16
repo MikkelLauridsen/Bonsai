@@ -4,7 +4,7 @@ import System.Environment (getArgs)
 import Parser (parseBonsai)
 import Ast
 import Prettifier
-import Inference
+import Typesystem
 import Semantics
 import System.IO
 
@@ -85,7 +85,7 @@ interactive = do
 runInterpret :: FilePath -> Either String ProgAST -> IO ()
 runInterpret _ (Left err) = putStrLn err
 runInterpret path (Right ast) =
-    case infer path ast of
+    case typeBonsai path ast of
         (Just msg) -> putStrLn msg
         Nothing    -> do
             res <- interpret path ast

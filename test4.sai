@@ -81,6 +81,6 @@ var tt::[Int] = (o::[Int] => { p::[Int] => { p ++ o } }) [] []
 
 var uuuu::Maybe<Int> = Just 3
 
-var hmm::Map<Int, String> = Node (5, "zz", Nil, Node (5, "xD", Nil, Nil))
+var hmm::Map<Int, String> = Node (5, "zz", Nil, Node (5, 'z', Nil, Nil))
 
 var uu::[Maybe<Int>] = (yy (Just 5) (yy (Just 6) [Just 5]))

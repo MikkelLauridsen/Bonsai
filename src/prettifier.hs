@@ -19,7 +19,7 @@ instance PrettyShow TypeId where
     prettyShow (TypeId typeName) ic = typeName
 
 instance PrettyShow VarId where
-    prettyShow (VarId varName) ic = varName
+    prettyShow (VarId varName _) ic = varName
 
 instance PrettyShow ProgAST where
     prettyShow (ProgAST types vars _) ic = 

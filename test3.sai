@@ -13,24 +13,25 @@ type Map<k,v> = {
     | Nil
 }
 
-#var testt = u => {
-#    u * u
-#}
-#
-#var uuu = testt 'c'
-
-var main = sys::System* => {
-    1
+var main::(System* -> (Bool, File*)) = sys::System* => {
+    let env = (bind (bind Nil "x" (IntValue 0x65BF)) "xyyy" (FloatValue 54.0))
+    in (
+        let (?, stdout') = writes ((show env) ++ "\n") stdout
+        in (
+            #writes (show (lookup env "xyyy")) stdout'
+            writes (show (testuu 4 6)) stdout'
+        )
+    )
 }
 
-#var testuu::(a<<Num, Bi>> -> (a<<Num, Bi>> -> a<<Num, Bi>>)) = one::a<<Num, Bi>> => { # TODO!!!
-#    two::a<<Num, Bi>> => {
-#        one * two b<< (one / two)
-#    }
-#}
+var testuu::(a<<Num, Bi>> -> (a<<Num, Bi>> -> a<<Num, Bi>>)) = one::a<<Num, Bi>> => { # TODO!!!
+    two::a<<Num, Bi>> => {
+        one * two b<< (one / two)
+    }
+}
 
-var bind = map => {
-    key => {
+var bind::(Map<k<<Eq, Ord>>,v> -> (k<<Eq,Ord>> -> (v -> Map<k<<Eq,Ord>>,v>))) = map::Map<k<<Eq,Ord>>,v> => {
+    key::k<<Eq,Ord>> => {
         value::v => {
             match map {
                 | Nil -> Node (key, value, Nil, Nil)
@@ -45,19 +46,25 @@ var bind = map => {
     }
 }
 
-#var lookup::(Map<k<<Eq,Ord>>,v> -> (k<<Eq,Ord>> -> Maybe<v>)) = map::Map<k<<Eq,Ord>>,v> => {
-#    key::k<<Eq,Ord>> => {
-#        match map {
-#            | Nil -> Nothing
-#            | Node (key', value', map1', map2') ->
-#            case {
-#                | key == key' -> Just value'
-#                | key < key'  -> lookup map1' key
-#                | key > key'  -> lookup map2' key
-#            }
-#        }
-#    }
-#}
+var test::(k<<Num, Ord>> -> (k<<Num, Ord>> -> k<<Num, Ord>>)) = one::k<<Num, Ord>> => { 
+    two::k<<Num, Ord>> => {
+        one + two
+    }
+}
+
+var lookup::(Map<k<<Eq,Ord>>,v> -> (k<<Eq,Ord>> -> Maybe<v>)) = map::Map<k<<Eq,Ord>>,v> => {
+    key::k<<Eq,Ord>> => {
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
+            }
+        }
+    }
+}
 
 var writes::(String -> (File* -> (Bool, File*))) = s::String => {
     f::File* => {

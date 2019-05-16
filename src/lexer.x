@@ -97,8 +97,8 @@ tokens :-
 <0>            b\>\>                                                           { stringTerminalToToken LevelThreeOpToken}
 <0>            \:                                                              { terminalToToken ConsToken}
 <0>            \!                                                              { stringTerminalToToken UnaryOpToken}
-<0>            b\~                                                             { stringTerminalToToken UnaryOpToken}
 <0>            \~                                                              { stringTerminalToToken UnaryOpToken}
+<0>            b\~                                                             { stringTerminalToToken UnaryOpToken}
 <0>            \"                                                              { enterString `andBegin` state_string} --" switch to the string state
 <0>            \'                                                              { enterChar `andBegin` state_char} -- switch to the char state
 -- token rules associated with string state
@@ -205,38 +205,73 @@ getPosition = liftM position alexGetUserState
 -- functions used to update individual parts of the lexer state
 setFilePath :: FilePath -> Alex ()
 setFilePath path = do 
-    userState <- alexGetUserState
-    alexSetUserState userState{ filePath = path }
+    string <- getStringValue
+    state <- getState
+    char <- getCharValue
+    current <- getCurrentLine
+    line <- getLineNumber
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setStringValue :: String -> Alex ()
 setStringValue string = do 
-    userState <- alexGetUserState
-    alexSetUserState userState{ stringValue = string }
+    path <- getFilePath
+    state <- getState
+    char <- getCharValue
+    current <- getCurrentLine
+    line <- getLineNumber
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setState :: LexState -> Alex ()
-setState state' = do
-    userState <- alexGetUserState
-    alexSetUserState userState{ state = state' }
+setState state = do
+    path <- getFilePath
+    string <- getStringValue
+    char <- getCharValue
+    current <- getCurrentLine
+    line <- getLineNumber
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setCharValue :: (Char, Bool) -> Alex ()
 setCharValue char = do 
-    userState <- alexGetUserState
-    alexSetUserState userState{ charValue = char }
+    path <- getFilePath
+    string <- getStringValue
+    state <- getState
+    current <- getCurrentLine
+    line <- getLineNumber
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setCurrentLine :: String -> Alex ()
 setCurrentLine current = do
-    userState <- alexGetUserState
-    alexSetUserState userState{ currentLine = current }
+    path <- getFilePath
+    string <- getStringValue
+    state <- getState
+    char <- getCharValue
+    line <- getLineNumber
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setLineNumber :: (Int, Int) -> Alex ()
 setLineNumber line = do
-    userState <- alexGetUserState
-    alexSetUserState userState{ lineNumber = line }
+    path <- getFilePath
+    string <- getStringValue
+    state <- getState
+    char <- getCharValue
+    current <- getCurrentLine
+    pos <- getPosition
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 setPosition :: AlexPosn -> Alex ()
 setPosition pos = do
-    userState <- alexGetUserState
-    alexSetUserState userState{ position = pos }
+    path <- getFilePath
+    string <- getStringValue
+    state <- getState
+    char <- getCharValue
+    current <- getCurrentLine
+    line <- getLineNumber
+    alexSetUserState (AlexUserState path string state char current line pos)
 
 -- Token format used by the lexer and parser:
 -- a terminal and the current position
