@@ -1,21 +1,6 @@
-
-
-
-
-
-
-type Test1 = {
-    | Test1a Int
-    | Test1b (Test2, Test1)
-}
-
-type Test2 = {
-    | Test2a (Float -> Int)
-}
-
 type Maybe<a> = {
-    | Nothing
     | Just a
+    | Nothing
 }
 
 type Map<k,v> = {
@@ -23,46 +8,35 @@ type Map<k,v> = {
     | Nil
 }
 
-type Test7<k,v> = {
-    | Nab (k, k, v, v)
-}
+var hmm2 = u => { u * 5 }
 
-type Wat = {
-    | Nob Int
-    | Nub (Wat, Int)
-}
+var main = sys => {
+    1
+} 
 
-var main = sys::(System*) => {
-    match read stdin {
-        | (?, 'y', ?) -> write '1' stdout
-        | (?, x, ?)   -> write tegn stdout
+var uuup = lookup (Node ('c', 4.0, Nil, Nil))
+
+var uuuup = fun ('c', 5.0)
+
+var ii::Int = 10
+
+var fun = u => {
+    match u {
+        | ('c', 4.0) -> 4.0
+        | (x, y) -> y * 3.0
     }
 }
 
-var test3 = Test2a (y::Float => { 10 })
-
-var test4 = Test1b (Test2a (y::Float => { 20 }), Test1a 24)
-
-var test5 = Just 10
-
-var test6::Map<[Char], Int> = Node ("woop", 54, Nil, Node ("nip", 5, Nil, Nil))
-
-var test8 = Nab (4, 5, 'c', 'g')
-
-var test9 = Nub ((Nob 5), 6)
-
-var tegn = 'f'
-
-var writes::(String -> (File* -> (Bool, File*))) = s::String => {
-    f::File* => {
-        match s {
-            | []     -> (true, f)
-            | (c:cs) -> 
-                let (succ, f') = write c f 
-                in (case {
-                    | succ == true -> (writes cs f')
-                    | ?            -> (false, f') 
-                })
+var lookup = map => { # TODO: undgå constraints på termkonstruktørers "globale" variabler
+    key => {
+        match map {
+            | Nil -> Nothing
+            | Node (key', value', map1', map2') ->
+            case {
+                | key == key' -> Just value'
+                | key < key'  -> lookup map1' key
+                | key > key'  -> lookup map2' key
+            }
         }
     }
 }
