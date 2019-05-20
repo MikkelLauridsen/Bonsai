@@ -6,7 +6,7 @@ import Data.Map.Strict as Map
 import Data.Either
 
 
-utilDataHolder = UtilData Untyped (1, 1, 1) "source"
+utilDataHolder = UtilData (1, 1, 1) "source"
 
 testEqValues = TestCase $ assertEqual
     "Should be true if the ConstValues are equal"

@@ -62,7 +62,7 @@ executable p4-exe
 
 test-suite p4-test
   type: exitcode-stdio-1.0
-  main-is: Semantics_Test.hs
+  main-is: inference_Test.hs
   other-modules:
       Paths_p4
   hs-source-dirs:
