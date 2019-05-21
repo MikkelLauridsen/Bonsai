@@ -1,92 +1,102 @@
 -- Unit tests for the infer function from the inference file.
 
+-- imports the AST and Inference files
+-- imports HUnit
 import Ast
 import Inference
 import Test.HUnit
 
+
 utilDataHolder = UtilData (1, 1, 1) "source"
 file = "FilePath"
 
+-- A testcase where main is not out of scope
+-- and hence it will return an error message
 testEpsAST = TestCase $ assertEqual   
     "Should give error message because main needs to have a type"
     (infer "FilePath" (ProgAST EpsTypeDclAST EpsVarDclAST utilDataHolder))
     (Just ("FilePath:1:1: error: variable 'main' is out of scope in:\n   source\n   ^^^^^^"))
 
+-- Checks if types are both either integer or floats
+-- In this case one of them is integer and the other is float
+-- hence it will return an error message
 testFloatInt = TestCase $ assertBool
     "test"
     ((infer file floatIntProgAst)
     /= Nothing)
 
+-- In this case both are integers
+-- Doesn't return error message
 testIntInt = TestCase $ assertBool
     "test"
     ((infer file intIntProgAST)
     == Nothing)
 
+-- Testcase for a tuple
+-- Doesn't return error message
 testTuple = TestCase $ assertBool
     "test"
     ((infer file tupleProgAST)
     == Nothing)
 
+-- Testcase for lists
+-- Checks if the list only consists of elements of the same type
+-- In this case the elements are not of the same type
+-- returns error message
 testListFail = TestCase $ assertBool
     "test"
     ((infer file listProgASTFail)
     /= Nothing)
 
+-- List only consists of elements of the same type
+-- Doesn't return error message
 testList = TestCase $ assertBool
     "test"
     ((infer file listProgAST)
     == Nothing)
 
 -- Checks if both types are strings
--- Returns Nothing
+-- Doesn't return error message
 testInferStringCompareTrue = TestCase $ assertBool
                 "Should return Nothing"
                 ((infer "filePath" stringCompareProg) == Nothing)
 
--- Returns Just ++ error message
+-- returns error message
 testinferStringCompareFalse = TestCase $ assertBool
                 "Should return Just"
                 ((infer "filePath" stringCompareProgFail) /= Nothing)
 
-
 -- Checks if both types are chars
--- Returns Nothing
+-- Doesn't return error message
 testinferCharCompareTrue = TestCase $ assertBool
                 "Should return Nothing"
                 ((infer "filePath" charCompareProg) == Nothing)
 
 -- Checks if the case is valid
--- Returns Nothing
+-- Doesn't return error message
 testinferCaseTrue = TestCase $ assertBool
                 "Should return Nothing"
                 ((infer "filepath" caseTestProg) == Nothing)
 
-
--- Returns Just ++ error message
-testinferCaseFalse = TestCase $ assertBool
-                "Should return Just"
-                ((infer "filepath" caseTestProgFail) /= Nothing)
-
 -- Checks if the lambda function is valid
--- Returns Nothing
+-- Doesn't return error message
 testinferLambdaTrue = TestCase $ assertBool
                 "Should return Nothing"
                 ((infer "filePath" lambdaTestProg) == Nothing)
 
--- Returns Just ++ error message
-testinferLambdaFalse = TestCase $ assertBool
-                "Should return Just"
-                ((infer "filepath" lambdaTestPropFail) /= Nothing)
-
+-- Checks if the match function is valid
+-- Doesn't return error message
 testInferMatch = TestCase $ assertBool
                 "Should return nothing"
                 ((infer file matchTestProg) == Nothing)
 
+-- Checks if the Let in function is valid
+-- Doesn't return error message
 testInferLetIn = TestCase $ assertBool
                 "Should return nothing"
                 ((infer file letTestProg) == Nothing)
 
-
+-- main which runs all the above-mentioned functions
 main = runTestTT $ TestList [testFloatInt
                             , testIntInt
                             , testTuple
@@ -96,9 +106,7 @@ main = runTestTT $ TestList [testFloatInt
                             , testinferStringCompareFalse
                             , testinferCharCompareTrue
                             , testinferCaseTrue
-                            , testinferCaseFalse
                             , testinferLambdaTrue
-                            , testinferLambdaFalse
                             , testInferMatch
                             , testInferLetIn
                             ]
