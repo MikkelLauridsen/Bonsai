@@ -9,7 +9,8 @@ Bonsai is a simple clean functional programming language inspired by Haskell, Cl
    - Higher-order functions
    - Constraint-based type inference
 # Installation
-:)
+1. install stack and intero for Haskell
+2. compile with stack
 # Snippets
 Global variable declarations:
 ```Haskell
@@ -39,7 +40,7 @@ type WeekDays = {
     | Sunday
 }
 ```
-Pattern matching:
+### Pattern matching:
 ```Haskell
 var foo = match Just ('5', true) {
     | Just ('a', ?)    -> "a"
@@ -56,7 +57,7 @@ var bar = match [1, 2, 3, 4] {
     | []           -> 0
 }
 ```
-Functions:
+### Functions:
 ```Haskell
 var fun = x => {
     y => {
@@ -66,7 +67,7 @@ var fun = x => {
 
 var fun2 = fun 5
 ```
-Case and let-in:
+### Case and let-in:
 ```Haskell
 var res = case {
     | 1 == 0 -> "goodbye all reasoning"
@@ -88,7 +89,7 @@ var nested = let fun = n => {
     }
 } in (fun 10)
 ```
-I/O and uniqueness types:
+### I/O and uniqueness types:
 ```Haskell
 var main = sys => {
     let (?, stdout') = writes (show (Just [5, 3, 2])) stdout
