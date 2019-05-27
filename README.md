@@ -12,13 +12,13 @@ Bonsai is a simple clean functional programming language inspired by Haskell, Cl
 1. install stack and intero for Haskell
 2. compile with stack
 # Snippets
-Global variable declarations:
+### Global variable declarations:
 ```Haskell
 var x = 10
 var y::[Int] = [x, 43, 98, 0x11]
 var z = (true, 10.3, 0xB8, "string")
 ```
-Type declarations:
+### Type declarations:
 ```Haskell
 type Maybe<a> = {
     | Just a
