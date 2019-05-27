@@ -1,6 +1,6 @@
  ![](https://i.imgur.com/CmcWYtf.png)
 
-Bonsai is a simple clean functional programming language inspired by Haskell, Clean, SML and GCL. Bonsai was created by group d406f19 as a part of the 4th semester of the computer science bachelor on Aalborg University.
+Bonsai is a simple clean functional programming language inspired by Haskell, Clean, SML and GCL. The purpose of Bonsai is to provide simple implementation of compilers and interpreters. Bonsai was created by group d406f19 as a part of the 4th semester of the computer science bachelor on Aalborg University.
 # Features
    - Pattern matching
    - Algebraic datatypes
