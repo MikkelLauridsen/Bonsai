@@ -1,3 +1,3 @@
-# Changelog for p4
+# Changelog for bonsai
 
 ## Unreleased changes

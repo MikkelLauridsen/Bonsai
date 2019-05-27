@@ -13,25 +13,13 @@ type Map<k,v> = {
     | Nil
 }
 
-#var testt = u => {
-#    u * u
-#}
-#
-#var uuu = testt 'c'
-
-var main = sys::System* => {
+var main = sys => {
     1
 }
 
-#var testuu::(a<<Num, Bi>> -> (a<<Num, Bi>> -> a<<Num, Bi>>)) = one::a<<Num, Bi>> => { # TODO!!!
-#    two::a<<Num, Bi>> => {
-#        one * two b<< (one / two)
-#    }
-#}
-
 var bind = map => {
     key => {
-        value::v => {
+        value => {
             match map {
                 | Nil -> Node (key, value, Nil, Nil)
                 | Node (key', value', map1', map2') -> 
@@ -45,8 +33,8 @@ var bind = map => {
     }
 }
 
-#var lookup::(Map<k<<Eq,Ord>>,v> -> (k<<Eq,Ord>> -> Maybe<v>)) = map::Map<k<<Eq,Ord>>,v> => {
-#    key::k<<Eq,Ord>> => {
+#var lookup::(Map<k<<Eq,Ord>>,v> -> (k<<Eq,Ord>> -> Maybe<v>)) = map => {
+#    key => {
 #        match map {
 #            | Nil -> Nothing
 #            | Node (key', value', map1', map2') ->
@@ -59,8 +47,8 @@ var bind = map => {
 #    }
 #}
 
-var writes::(String -> (File* -> (Bool, File*))) = s::String => {
-    f::File* => {
+var writes::(String -> (File* -> (Bool, File*))) = s => {
+    f => {
         match s {
             | []     -> (true, f)
             | (c:cs) -> 
@@ -73,7 +61,7 @@ var writes::(String -> (File* -> (Bool, File*))) = s::String => {
     }
 }
 
-var readLn::(File* -> (Bool, String, File*)) = f::File* => {
+var readLn::(File* -> (Bool, String, File*)) = f => {
     let (succ, c, f') = read f
     in (case {
         | succ == true -> 
@@ -89,9 +77,9 @@ var readLn::(File* -> (Bool, String, File*)) = f::File* => {
     })
 }
 
-var prompt::(String -> (File* -> (File* -> (Bool, String, File*, File*)))) = s::String => {
-    outf::File* => {
-        inf::File* => {
+var prompt::(String -> (File* -> (File* -> (Bool, String, File*, File*)))) = s => {
+    outf => {
+        inf => {
             let (succ, outf') = writes s outf
             in (match succ {
                 | true -> 
