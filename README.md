@@ -1,4 +1,21 @@
- z = (true, 10.3, 0xB8, "string")
+ ![](https://i.imgur.com/CmcWYtf.png)
+
+Bonsai is a simple clean functional programming language inspired by Haskell, Clean, SML and GCL. Bonsai was created by group d406f19 as a part of the 4th semester of the computer science bachelor on Aalborg University.
+# Features
+   - Pattern matching
+   - Algebraic datatypes
+   - Uniqueness-type based I/O
+   - Selection by guarded commands
+   - Higher-order functions
+   - Constraint-based type inference
+# Installation
+:)
+# Snippets
+Global variable declarations:
+```Haskell
+var x = 10
+var y::[Int] = [x, 43, 98, 0x11]
+var z = (true, 10.3, 0xB8, "string")
 ```
 Type declarations:
 ```Haskell
