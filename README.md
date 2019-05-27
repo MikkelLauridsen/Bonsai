@@ -99,7 +99,7 @@ var main = sys => {
 var main = sys => {
     let (succ, c, ?) = read stdin
     in (case {
-        | true -> writes
+        | succ -> writes
         match c {
             | 'y' -> "you said yes!"
             | ?   -> "I am disappointed in you :("
