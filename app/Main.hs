@@ -1,3 +1,6 @@
+    
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UnicodeSyntax #-}
 module Main (main) where
 
 import System.Environment (getArgs)
@@ -7,6 +10,15 @@ import Prettifier
 import Inference
 import Semantics
 import System.IO
+import Discord
+import Control.Exception (finally)
+import Control.Monad (when)
+import Data.Char (toLower)
+import Data.Monoid ((<>))
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+
+type Disc z = (ChannelId, (RestChan, Gateway, z))
 
 -- prettify formats the result of parsing a given file
 -- if the result is an error message, it is returned
@@ -24,88 +36,39 @@ toAst (Right prog) = show prog
 -- based on program arguments
 main :: IO ()
 main = do
-    args <- getArgs
-    case args of
-        []           -> interactive
-        [file]       -> fromFile file
-        [file, "@P"] -> prettifyFile file
-        _            -> error "expected a single file."
+    tok <- T.strip <$> TIO.readFile "auth-token"
+    dis <- loginRestGateway (Auth tok)
+    finally (loopDiscord dis) (stopDiscord dis)
 
--- prettifyFile tries to read the file at input path
--- then parses it and prints an abstract representation
--- of the program on success
-prettifyFile :: String -> IO ()
-prettifyFile file = do
-    result <- fmap (parseBonsai file) (readFile file)
-    putStrLn $ prettify result
+loopDiscord :: (RestChan, Gateway, z) -> IO ()
+loopDiscord dis = do
+    e <- nextEvent dis
+    case e of
+        Left err -> putStrLn ("Event error: " ++ show err)
+        Right (MessageCreate m) -> do
+            when ((T.isPrefixOf ";" (messageText m)) && not (fromBot m)) $ do
+                runInterpret (messageChannel m, dis) (parseBonsai "" (T.unpack (T.tail (messageText m))))
+            loopDiscord dis
+        _ -> loopDiscord dis
 
--- fromFile tries to read the file at input path
--- and interprets it on success
-fromFile :: String -> IO ()
-fromFile file = do
-    result <- fmap (parseBonsai file) (readFile file)
-    runInterpret file result
+fromBot :: Message -> Bool
+fromBot m = userIsBot (messageAuthor m)
 
--- UserAction is used by the interactive interpreter to specify user actions,
--- such as interpreting or prettifying the user's input
-data UserAction = RunUser String
-                | ExitUser
-                | PrettifyUser String
-                | AstUser String
-                | ErrorUser String
-
--- getSource recursively chooses a UserAction
--- based stdin input
-getSource :: [String] -> IO UserAction
-getSource current = do
-    line <- cmdPrompt
-    case line of
-        "@EXIT"     -> return ExitUser
-        "@RUN"      -> return $ RunUser (concat current)
-        "@PRETTIFY" -> return $ PrettifyUser (concat current)
-        "@AST"      -> return $ AstUser (concat current)
-        "@RESET"    -> getSource []
-        "@UNDO"     -> case current of
-                            [] -> return $ ErrorUser "cannot delete an empty string"
-                            _  -> getSource $ init current
-        _           -> getSource $ current ++ [line]
-
--- interactive recursively interprets or pretty prints user input
--- until an ExitUser UserAction is returned by getSource
-interactive :: IO ()
-interactive = do
-    res <- getSource []
-    case res of
-        ExitUser           -> putStrLn "\n"
-        ErrorUser err      -> do
-            putStrLn $ "ERROR: " ++ err ++ "\n"
-            interactive
-        RunUser input      -> do
-            runInterpret "<stdin>" (parse input)
-            interactive
-        PrettifyUser input -> do
-            putStrLn $ prettify (parse input)
-            interactive
-        AstUser input      -> do
-            putStrLn $ toAst (parse input)
-            interactive
-    where parse = parseBonsai "<stdin>"
-
-runInterpret :: FilePath -> Either String ProgAST -> IO ()
-runInterpret _ (Left err) = putStrLn err
-runInterpret path (Right ast) =
-    case infer path ast of
-        (Just msg) -> putStrLn msg
+runInterpret :: Disc z -> Either String ProgAST -> IO ()
+runInterpret dis@(chan, dis') (Left err) = do 
+    _ <- restCall dis' (CreateMessage chan (T.pack err))
+    putStrLn err
+runInterpret dis@(chan, dis') (Right ast) =
+    case infer "" ast of
+        (Just msg) -> do 
+            _ <- restCall dis' (CreateMessage chan (T.pack msg))
+            putStrLn msg
         Nothing    -> do
-            res <- interpret path ast
+            res <- interpret dis ast
             case res of
-                (Left msg) -> putStrLn msg
-                (Right _)  -> putChar '\n'
-
--- prompts the user for a line in stdin
--- and returns the result
-cmdPrompt :: IO String
-cmdPrompt = do
-    putStr "; "
-    hFlush stdout
-    getLine
+                (Left msg) -> do
+                    _ <- restCall dis' (CreateMessage chan (T.pack msg))
+                    putStrLn msg
+                (Right _)  -> do
+                    _ <- restCall dis' (CreateMessage chan "fin 🐮")
+                    putChar '\n'

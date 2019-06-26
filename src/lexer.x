@@ -45,12 +45,9 @@ tokens :-
 <0>            type                                                            { terminalToToken TypeToken}
 <0>            true                                                            { terminalToToken (BoolToken True)}
 <0>            false                                                           { terminalToToken (BoolToken False)}
-<0>            open_read                                                       { stringTerminalToToken IOToken}
-<0>            open_write                                                      { stringTerminalToToken IOToken}
 <0>            close                                                           { stringTerminalToToken IOToken}
 <0>            read                                                            { stringTerminalToToken IOToken}
 <0>            write                                                           { stringTerminalToToken IOToken}
-<0>            delete                                                          { stringTerminalToToken IOToken}
 <0>            show                                                            { stringTerminalToToken IOToken}
 <0>            s2i                                                             { stringTerminalToToken IOToken}
 <0>            s2f                                                             { stringTerminalToToken IOToken}

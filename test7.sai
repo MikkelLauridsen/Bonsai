@@ -1,0 +1,85 @@
+
+
+type Maybe<a> = {
+    | Just a
+    | Nothing
+}
+
+var length = list => {
+    match list {
+        | []     -> 0
+        | (x:xs) -> 1 + (length xs)
+    }
+} 
+
+var fac = n => {
+    case {
+        | n < 1 -> 1
+        | n > 1 -> n * (fac (n - 1))
+    }
+}
+
+
+var test1 = [1, 4, 6]
+
+var test2 = length [test1, [1,5,3]]
+
+#var test3 = length (1, 4, 7)
+
+var main = sys => {
+    let fac2 = n => {
+        case {
+            | n <= 1 -> 1
+            | ?      -> n * (fac2 (n - 1))
+        }
+    } in (writes (show (fac 10)) stdout)
+}
+
+var u = .+ 5
+
+var writes = s => {
+    f => {
+        match s {
+            | []     -> (true, f)
+            | (c:cs) -> 
+                let (succ, f') = write c f 
+                in (case {
+                    | succ == true -> (writes cs f')
+                    | ?            -> (false, f') 
+                })
+        }
+    }
+}
+
+var readLn = f => {
+    let (succ, c, f') = read f
+    in (case {
+        | succ == true -> 
+        match c {
+            | '\n' -> (true, ['\n'], f')
+            | ?    -> let (succ2, s, f2') = readLn f'
+                        in (case {
+                             | succ2 == true -> (true, (c:s), f2')
+                             | ?             -> (false, (c:s), f2')
+                            })
+                }
+        | ?            -> (false, [c], f')
+    })
+}
+
+var prompt = s => {
+    outf => {
+        inf => {
+            let (succ, outf') = writes s outf
+            in (match succ {
+                | true -> 
+                    let (succ', line, inf') = readLn inf
+                    in (match succ' {
+                        | true -> (true, line, outf', inf')
+                        | ?    -> (false, "", outf', inf')
+                    })
+                | ?    -> (false, "", outf', inf)
+            })
+        }
+    }
+}

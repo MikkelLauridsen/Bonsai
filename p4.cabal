@@ -34,6 +34,26 @@ library
       Prettifier
       Inference
       Semantics
+      Discord
+      Discord.Gateway
+      Discord.Gateway.Cache
+      Discord.Gateway.EventLoop
+      Discord.Rest
+      Discord.Rest.Channel
+      Discord.Rest.Emoji
+      Discord.Rest.Guild
+      Discord.Rest.HTTP
+      Discord.Rest.Invite
+      Discord.Rest.Prelude
+      Discord.Rest.Webhook
+      Discord.Rest.Voice
+      Discord.Rest.User
+      Discord.Types
+      Discord.Types.Channel
+      Discord.Types.Events
+      Discord.Types.Gateway
+      Discord.Types.Guild
+      Discord.Types.Prelude
   other-modules:
       Paths_p4
   hs-source-dirs:
@@ -45,6 +65,22 @@ library
     , directory
     , bytestring
     , mtl
+    , time
+    , text
+    , aeson
+    , unordered-containers
+    , vector
+    , data-default
+    , iso8601-time
+    , req
+    , base64-bytestring
+    , JuicyPixels
+    , safe-exceptions
+    , http-client
+    , async
+    , wuss
+    , websockets
+    , MonadRandom
   default-language: Haskell2010
 
 executable p4-exe
@@ -58,6 +94,7 @@ executable p4-exe
       base >=4.7 && <5
     , mtl
     , p4
+    , text
   default-language: Haskell2010
 
 test-suite p4-test
