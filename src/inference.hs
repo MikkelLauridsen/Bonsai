@@ -6,6 +6,11 @@
 module Inference
     (
       infer
+    , inferRun
+    , inferMakeType
+    , TypeEnv(..)
+    , Type(..)
+    , Scheme(..)
     ) where
 
 import Ast
@@ -542,6 +547,41 @@ gen env typ = ForAll vars typ
 stdin'  = (VarId "stdin", ForAll [] (UniqT (PrimT FilePrim) True))
 stdout' = (VarId "stdout", ForAll [] (UniqT (PrimT FilePrim) True))
 initEnv = TypeEnv $ Map.fromList [stdin', stdout']
+
+inferRun :: TypeEnv -> Sig -> Ups -> LazySig -> ExprAST -> Maybe String
+inferRun envg sigma upsilon lsigma expr = runInferT (inferSingle envg sigma upsilon lsigma expr)
+
+inferMakeType :: Sig -> Ups -> LazySig -> SingleAST -> Either String (Sig, Ups, LazySig)
+inferMakeType sigma' upsilon' lsigma' single = runInferTType (inferType sigma' upsilon' lsigma' single)
+
+runInferTType :: InferT (Sig, Ups, LazySig) -> Either String (Sig, Ups, LazySig)
+runInferTType m = 
+    case evalState (runExceptT m) initState of
+        Left err   -> Left $ evalError err
+        Right sigs -> Right sigs
+
+inferSingle :: TypeEnv -> Sig -> Ups -> LazySig -> ExprAST -> InferT Substitution
+inferSingle envg sigma' upsilon' lsigma' expr = do
+    state <- get
+    put state{ globalEnv = envg, sigma = sigma', upsilon = upsilon', lsigma = lsigma' }
+    _ <- inferExpr expr (TypeEnv Map.empty)
+    state' <- get
+    unifyAll Map.empty (constraints state') 
+
+inferType :: Sig -> Ups -> LazySig -> SingleAST -> InferT (Sig, Ups, LazySig)
+inferType sigma' upsilon' lsigma' single = do
+    let dcl = extractSingle single
+    state <- get
+    put state{ sigma = sigma', upsilon = upsilon', lsigma = lsigma' }
+    inferTypeDclLazily dcl
+    inferTypeDcl dcl
+    state' <- get
+    return (sigma state', upsilon state', lsigma state')
+
+extractSingle :: SingleAST -> TypeDclAST
+extractSingle (TypeSingle t cons utilData) = TypeDclAST t cons EpsTypeDclAST utilData
+extractSingle (TypePolySingle t vars cons utilData) = TypePolyDclAST t vars cons EpsTypeDclAST utilData
+extractSingle _ = error "unexpected single type"
 
 -- infers input AST and returns an error message,
 -- if no substitution resulting in a well-typed AST exists

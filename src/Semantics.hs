@@ -14,6 +14,7 @@ module Semantics
     ) where
 
 import Ast
+import Prettifier
 import Data.Map.Strict as Map
 import Data.Set as Set
 import System.IO
@@ -60,6 +61,20 @@ data Values = ConstValue ConstAST
             | ListValue [Values]
             | PartialValue (Values -> IO Values)
             | LazyValue ExprAST
+
+instance Show Values where
+    show (ConstValue (CharConstAST c _)) = "'" ++ [toChar c] ++ "'"
+    show (ListValue vs@((ConstValue (CharConstAST _ _)):_)) = "\"" ++ Prelude.concat (Prelude.map (Prelude.init . Prelude.tail . show) vs) ++ "\""
+    show (ConstValue c) = prettyShow c 0
+    show (TerValue t) = typeName t
+    show (TerConsValue t v) = typeName t ++ " " ++ show v
+    show (ClosureValue x _ _) = "<" ++ varName x ++ ", e, env>"
+    show (RecClosureValue f x _ _) = "<" ++ varName f ++ ", " ++ varName x ++ ", e, env>"
+    show (TupleValue vs) = "(" ++ ([show v| v <- (Prelude.init vs)] >>= (++ ", ")) ++ show (Prelude.last vs) ++ ")"
+    show (ListValue []) = "[]"
+    show (ListValue vs) = "[" ++ ([show v| v <- (Prelude.init vs)] >>= (++ ", ")) ++ show (Prelude.last vs) ++ "]"
+    show (PartialValue _) = "<partial operator>"
+    show _ = error "unsupported action" 
 
 -- an instance of Eq for Values must be declared for the == operator
 -- Not all types can be compared, specifically functions

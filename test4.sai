@@ -18,9 +18,9 @@ var main::(System* -> Maybe<Values>) = sys::System* => {
     in (lookup env "x")
 }
 
-var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
-    key::k => {
-        value::v => {
+var bind = map => {
+    key => {
+        value => {
             match map {
                 | Nil -> Node (key, value, Nil, Nil)
                 | Node (key', value', map1', map2') -> 
@@ -34,8 +34,8 @@ var bind::(Map<k,v> -> (k -> (v -> Map<k,v>))) = map::Map<k,v> => {
     }
 }
 
-var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
-    key::k => {
+var lookup = map => {
+    key => {
         match map {
             | Nil -> Nothing
             | Node (key', value', map1', map2') ->
@@ -48,6 +48,17 @@ var lookup::(Map<k,v> -> (k -> Maybe<v>)) = map::Map<k,v> => {
     }
 }
 
+var fac = n => {
+    case {
+        | n < 0  -> Nothing
+        | n <= 1 -> Just 1
+        | ?      ->
+        match fac (n - 1) {
+            | Nothing   -> Nothing
+            | Just prod -> Just (n * prod)
+        }
+    }
+}
 
 
 

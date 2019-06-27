@@ -2,6 +2,7 @@ module Ast
     ( UtilData(..)
     , TypeId(..)
     , VarId(..)
+    , SingleAST(..)
     , ProgAST(..)
     , CompTypeAST(..)
     , TypeVarAST(..)
@@ -42,6 +43,12 @@ instance Eq VarId where
 
 instance Ord VarId where
     VarId s1 `compare` VarId s2 = s1 `compare` s2    
+
+data SingleAST = TypeSingle TypeId [ConsAST] UtilData
+               | TypePolySingle TypeId [VarId] [ConsAST] UtilData
+               | VarSingle TypeVarAST ExprAST UtilData
+               | ExprSingle ExprAST
+               deriving Show
 
 data ProgAST = ProgAST TypeDclAST VarDclAST UtilData deriving Show
 

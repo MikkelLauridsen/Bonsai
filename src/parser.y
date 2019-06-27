@@ -61,7 +61,10 @@ import Ast
 -- Semantic actions are used to construct an abstract syntax tree
 -- $i denotes "value of term i" in the corresponding production
 
-Prog    : Type_dec Var_dec                                                  { ProgAST $1 $2 (getUtilDataProg $1 $2) }
+Single      : type type_id '=' '{' Cons_list '}'                            { TypeSingle (getTypeId $2) $5 (getUtilData $1)  }
+            | type type_id '<' Poly_body '>' '=' '{' Cons_list '}'          { TypePolySingle (getTypeId $2) $4 $8 (getUtilData $1) }
+            | var Typed_var '=' Expr                                        { VarSingle $2 $4 (getUtilData $1) }
+            | Expr                                                          { ExprSingle $1 }
                     
 -- Types                    
                     
@@ -263,7 +266,7 @@ getErrorIndicator num length = take num (repeat ' ') ++ take length (repeat '^')
 -- parseBonsai is the finished monadic lexer/parser driven by Alex
 -- it takes a filepath which is used to specify which file is responsible for given errors
 -- also takes a string which will be scanned and parsed
-parseBonsai :: FilePath -> String -> Either String ProgAST
+parseBonsai :: FilePath -> String -> Either String SingleAST
 parseBonsai = setFileAndRun parse
 
 }

@@ -28,6 +28,9 @@ instance PrettyShow ProgAST where
         
 instance PrettyShow CompTypeAST where
     prettyShow (CompSimpleAST typeId _) ic = prettyShow typeId ic
+    prettyShow (CompSimplePolyAST varId _) ic = prettyShow varId ic
+    prettyShow (CompPolyAST typeId ss _) ic = prettyShow typeId ic ++ "<" ++ prettyShowList ss ic ", " ++ ">"
+    prettyShow (CompClssAST varId typeIds _) ic = prettyShow varId ic ++ "<<" ++ prettyShowList typeIds ic ", " ++ ">>"
     prettyShow (CompListAST compType _) ic = "[" ++ prettyShow compType ic ++ "]"
     prettyShow (CompTupleAST compTypeList _) ic = "(" ++ prettyShowList compTypeList ic ", " ++ ")"
     prettyShow (CompFuncAST compType1 compType2 _) ic = "(" ++ prettyShow compType1 ic ++ " -> " ++ prettyShow compType2 ic ++ ")" 
