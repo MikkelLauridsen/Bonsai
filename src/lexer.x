@@ -415,12 +415,13 @@ findCurrentLine ((AlexPn _ line column), _, _, string) current (lineN, offset) =
 -- based on input source file line, position and indent level      
 getErrorMessage :: String -> AlexPosn -> String -> Int -> String
 getErrorMessage current (AlexPn _ line column) string offset = 
-    "unexpected character '" ++ 
+    "unexpected character ``" ++ 
     [head string] ++ 
-    "' at:\n   " ++
+    "`` at:```Haskell\n" ++
     current ++
-    "\n   " ++
-    getErrorIndicator (column - offset)
+    "\n" ++
+    getErrorIndicator (column - offset) ++
+    "```"
 
 -- returns a string of 'size' spaces and one ^
 getErrorIndicator :: Int -> String
@@ -437,7 +438,7 @@ getPositionString string = tail (takeWhile (not . (flip elem) "\r\n") string)
 handleError :: AlexPosn -> String -> Alex a
 handleError (AlexPn _ line column) err = do 
     path <- getFilePath
-    alexError (path ++ ":" ++ show line ++ ":" ++ show column ++ ": error: " ++ err)
+    alexError (show line ++ ":" ++ show column ++ ": error: " ++ err)
 
 -- handles special error cases such as newline in string/char state
 specialError :: (String -> AlexPosn -> String -> Int -> String) -> AlexAction Token

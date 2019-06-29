@@ -248,23 +248,23 @@ runInferT m = case evalState (runExceptT m) initState of
 
 -- evalError converts a TypeError instance to string
 evalError :: TypeError -> String
-evalError (LinearTypeError typ utilData)                      = formatErr ("instance of unique type '" ++ show typ ++ "' cannot be used more than once") utilData
-evalError (VariableScopeError varId utilData)                 = formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData
-evalError (VariableRedefinitionError varId utilData)          = formatErr ("global variable '" ++ varName varId ++ "' cannot be redefined globally") utilData
-evalError (TypeRedefinitionError typeId utilData)             = formatErr ("algebraic type '" ++ typeName typeId ++  "' cannot be redefined") utilData
-evalError (TermConstructorRedefinitionError typeId utilData)  = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be redefined") utilData
-evalError (UndefinedTermConstructorError typeId utilData)     = formatErr ("unknown termconstructor '" ++  typeName typeId ++ "'") utilData
-evalError (UndefinedTypeError typeId utilData)                = formatErr ("unknown type '" ++ typeName typeId ++ "'") utilData
-evalError (TermConstructorTypeMisuseError id varId utilData)  = formatErr ("algebraic type '" ++ typeName id ++ "' does not have typevariable '" ++ varName varId ++ "'") utilData
-evalError (NotAlgebraicTypeError typ utilData)                = formatErr ("type '" ++ show typ ++ "' cannot be used polymorphically") utilData
-evalError (TermConstructorPatternMisuseError typeId utilData) = formatErr ("termconstructor '" ++ typeName typeId ++ "' cannot be used as a constant") utilData
-evalError (TypeClassMismatchError typ1 typ2 utilData)         = formatErr ("type mismatch, expected '" ++ show typ1 ++ "' but actual type '" ++ show typ2 ++ "' does not conform to the typeclasses") utilData
-evalError (TypeVariableClassMismatchError varId utilData)     = formatErr ("typevariable '" ++ varName varId ++ "' cannot be used with different typeclasses") utilData
-evalError (UndefinedTypeClassError typeId utilData)           = formatErr ("unknown typeclass '" ++ typeName typeId ++ "'") utilData
-evalError (TypeMismatchError typ1 typ2 utilData)              = formatErr ("type mismatch, could not match expected type '" ++ show typ1 ++ "' with actual type '" ++ show typ2 ++ "'") utilData
-evalError (MatchPatternMismatchError typ pat utilData)        = formatErr ("type-pattern mismatch, could not match type '" ++ show typ ++ "' with pattern '" ++ prettyShow pat 0 ++ "'") utilData
+evalError (LinearTypeError typ utilData)                      = formatErr ("instance of unique type ``" ++ show typ ++ "`` cannot be used more than once") utilData
+evalError (VariableScopeError varId utilData)                 = formatErr ("variable ``" ++ varName varId ++ "`` is out of scope") utilData
+evalError (VariableRedefinitionError varId utilData)          = formatErr ("global variable ``" ++ varName varId ++ "`` cannot be redefined globally") utilData
+evalError (TypeRedefinitionError typeId utilData)             = formatErr ("algebraic type ``" ++ typeName typeId ++  "`` cannot be redefined") utilData
+evalError (TermConstructorRedefinitionError typeId utilData)  = formatErr ("termconstructor ``" ++ typeName typeId ++ "`` cannot be redefined") utilData
+evalError (UndefinedTermConstructorError typeId utilData)     = formatErr ("unknown termconstructor ``" ++  typeName typeId ++ "``") utilData
+evalError (UndefinedTypeError typeId utilData)                = formatErr ("unknown type ``" ++ typeName typeId ++ "``") utilData
+evalError (TermConstructorTypeMisuseError id varId utilData)  = formatErr ("algebraic type ``" ++ typeName id ++ "`` does not have typevariable ``" ++ varName varId ++ "``") utilData
+evalError (NotAlgebraicTypeError typ utilData)                = formatErr ("type ``" ++ show typ ++ "`` cannot be used polymorphically") utilData
+evalError (TermConstructorPatternMisuseError typeId utilData) = formatErr ("termconstructor ``" ++ typeName typeId ++ "`` cannot be used as a constant") utilData
+evalError (TypeClassMismatchError typ1 typ2 utilData)         = formatErr ("type mismatch, expected ``" ++ show typ1 ++ "`` but actual type ``" ++ show typ2 ++ "`` does not conform to the typeclasses") utilData
+evalError (TypeVariableClassMismatchError varId utilData)     = formatErr ("typevariable ``" ++ varName varId ++ "`` cannot be used with different typeclasses") utilData
+evalError (UndefinedTypeClassError typeId utilData)           = formatErr ("unknown typeclass ``" ++ typeName typeId ++ "``") utilData
+evalError (TypeMismatchError typ1 typ2 utilData)              = formatErr ("type mismatch, could not match expected type ``" ++ show typ1 ++ "`` with actual type ``" ++ show typ2 ++ "``") utilData
+evalError (MatchPatternMismatchError typ pat utilData)        = formatErr ("type-pattern mismatch, could not match type ``" ++ show typ ++ "`` with pattern ``" ++ prettyShow pat 0 ++ "``") utilData
 evalError (LengthMismatchError utilData)                      = formatErr ("cannot match types of different numbers of immediates") utilData
-evalError (InfinityTypeError tvar typ utilData)               = formatErr ("typevariable '" ++ show tvar ++ "' must not occur in substituted type '" ++ show typ ++ "'") utilData
+evalError (InfinityTypeError tvar typ utilData)               = formatErr ("typevariable ``" ++ show tvar ++ "`` must not occur in substituted type ``" ++ show typ ++ "``") utilData
 evalError (DebugError msg utilData)                           = formatErr msg utilData
 
 -- genTVar generates the 'next' typevariable with input typeclasses,
@@ -292,9 +292,10 @@ formatErr :: String -> UtilData -> String
 formatErr err UtilData{position=pos, sourceLine=line} = 
     let (l, c, o) = pos
         in (show l ++ ":" ++ show c ++ ": error: " ++ 
-            err ++ " in:\n" ++ (Prelude.take (o - 1) (repeat ' ')) ++ 
-            "   " ++ line ++ "\n" ++ 
-            "   " ++ (getIndicator (o - 1) (length line)))
+            err ++ " in:```Haskell\n" ++ (Prelude.take (o - 1) (repeat ' ')) ++ 
+            line ++ "\n" ++ 
+            (getIndicator (o - 1) (length line))) ++
+            "```"
 
 getIndicator :: Int -> Int -> String
 getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')

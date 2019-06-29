@@ -163,9 +163,10 @@ formatErr :: String -> UtilData -> String
 formatErr err UtilData{position=pos, sourceLine=line} = 
     let (l, c, o) = pos
         in (show l ++ ":" ++ show c ++ ": error: " ++ 
-            err ++ " in:\n" ++ (Prelude.take (o - 1) (repeat ' ')) ++ 
-            "   " ++ line ++ "\n" ++ 
-            "   " ++ (getIndicator (o - 1) (length line)))
+            err ++ " in:```Haskell\n" ++ (Prelude.take (o - 1) (repeat ' ')) ++ 
+            line ++ "\n" ++ 
+            (getIndicator (o - 1) (length line))) ++
+            "```"
 
 getIndicator :: Int -> Int -> String
 getIndicator offset len = Prelude.take offset (repeat ' ') ++ Prelude.take len (repeat '^')
@@ -221,10 +222,10 @@ evalTypeDcl dt sigma =
 handleTypeDcl :: TypeId -> [ConsAST] -> TypeDclAST -> Sig -> UtilData -> IO (Either String Sig)
 handleTypeDcl typeId cons dt' sigma utilData =
     case sigma `conflicts` sigma2 of
-        (Just name) -> return $ Left (formatErr ("cannot redefine '" ++ name ++ "'") utilData)
+        (Just name) -> return $ Left (formatErr ("cannot redefine ``" ++ name ++ "``") utilData)
         Nothing     -> 
             case hasConflicts list2 of
-                (Just name) -> return $ Left (formatErr ("multiple instances of termconstructor '" ++ name ++ "'") utilData)
+                (Just name) -> return $ Left (formatErr ("multiple instances of termconstructor ``" ++ name ++ "``") utilData)
                 Nothing     -> evalTypeDcl dt' (sigma `unionSig` sigma2)
     where
         -- set up the set from Sig in which the termconstructors of 'typeId' are declared 
@@ -241,7 +242,7 @@ evalVarDcl dv env sigma =
         EpsVarDclAST                   -> return $ Right env
         VarDclAST xt expr dv' utilData ->
             case Map.lookup x env of
-                (Just _) -> return $ Left (formatErr ("cannot redeclare variable '" ++ (varName x) ++ "'") utilData)
+                (Just _) -> return $ Left (formatErr ("cannot redeclare variable ``" ++ (varName x) ++ "``") utilData)
                 Nothing  -> evalVarDcl dv' (env `except` (x, value)) sigma
             where
                 value = LazyValue expr
@@ -303,7 +304,7 @@ evalVarExpr varId env envg sigma utilData dis =
                             return $ Right (value, envg' `except` (varId, value))
                         (Right (value, envg')) -> return $ Right (value, envg' `except` (varId, value))
                 (Just value) -> return $ Right (value, envg)
-                Nothing -> return $ Left (formatErr ("variable '" ++ varName varId ++ "' is out of scope") utilData)
+                Nothing -> return $ Left (formatErr ("variable ``" ++ varName varId ++ "`` is out of scope") utilData)
     where
         maybeValue1 = env `getVar` varId
         maybeValue2 = envg `getVar` varId
@@ -317,7 +318,7 @@ evalTer :: TypeId -> Env -> Sig -> UtilData -> IO (Either String (Values, Env))
 evalTer t envg sigma utilData = 
     if sigma `has` t
         then return $ Right (TerValue t, envg)
-        else return $ Left (formatErr ("unknown term-constructor '" ++ typeName t ++ "'") utilData)
+        else return $ Left (formatErr ("unknown term-constructor ``" ++ typeName t ++ "``") utilData)
 
 -- implementation of transition rule (tupe-1) and (type-2)
 -- returns an error message if:
@@ -501,7 +502,7 @@ evalMatch value ((pat', expr'):branches') env envg sigma utilData dis =
                 MatchFail      -> evalMatch value branches' env envg sigma utilData dis
                 Bindings delta -> 
                     case findConflicts delta of
-                        (Just msg) -> return $ Left (formatErr ("variable '" ++ msg ++ "' cannot be bound more than once in the same pattern") utilData)
+                        (Just msg) -> return $ Left (formatErr ("variable ``" ++ msg ++ "`` cannot be bound more than once in the same pattern") utilData)
                         Nothing    -> evalExpr expr' (applyBindings env delta) envg sigma dis
 
 -- helper function for evalMatch
@@ -551,7 +552,7 @@ match (TerValue t1) (TypePatternAST t2 utilData) sigma =
         then if t1 == t2 
                 then Right (Bindings [])
                 else Right MatchFail
-        else Left (formatErr ("unknown term-constructor '" ++ typeName t1 ++ "'") utilData)
+        else Left (formatErr ("unknown term-constructor ``" ++ typeName t1 ++ "``") utilData)
 
 match (ListValue (v:vs)) (DecompPatternAST pat' varId _) sigma =
     case maybeDelta of
@@ -574,7 +575,7 @@ match (TerConsValue t1 value) (TypeConsPatternAST t2 pat' utilData) sigma =
         then if t1 == t2 
                 then match value pat' sigma
                 else Right MatchFail
-        else Left (formatErr ("unknown term constructor '" ++ typeName t1 ++ "'") utilData)
+        else Left (formatErr ("unknown term constructor ``" ++ typeName t1 ++ "``") utilData)
 
 match _ _ _ = Right MatchFail
 

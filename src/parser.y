@@ -225,22 +225,22 @@ parseError ((Token (AlexUserState _ _ _ _ _ _ pos) token), expected) = do
 -- as well as all token types that would have been legal
 getErrorMessage :: AlexPosn -> String -> Terminal -> [String] -> Int -> String
 getErrorMessage (AlexPn _ _ column) line current expected offset = 
-        "unexpected token '" ++ 
+        "unexpected token ``" ++ 
         terminalString current ++ 
-        "' at:\n  " ++
+        "`` at:```Haskell\n" ++
         line ++
-        "\n  " ++
+        "\n" ++
         getErrorIndicator (column - offset) (length (terminalString current)) ++
-        "\n  " ++
+        "```" ++
         handleExpected expected
 
 -- handleExpected recursively constructs a string of comma separated token names in input list
 handleExpected :: [String] -> String
-handleExpected expected = "expected: " ++
-        case map convertWord expected of
+handleExpected expected = "expected: ``" ++
+        (case map convertWord expected of
             []       -> "\n"
             [s]      -> s ++ "\n"
-            (s:ss)   -> (reverse ss >>= (++ ", ")) ++ s ++ "\n" 
+            (s:ss)   -> (reverse ss >>= (++ ", ")) ++ s) ++ "``" 
 
 -- convertWord formats a selected few possible token names to a more pleasant format
 convertWord :: String -> String

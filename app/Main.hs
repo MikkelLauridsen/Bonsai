@@ -19,6 +19,7 @@ import Data.Char (toLower)
 import Data.Monoid ((<>))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Control.Concurrent as CC
 
 type Disc z = (ChannelId, (RestChan, Gateway, z))
 
@@ -72,15 +73,15 @@ loopDiscord dis envs = do
                 case res of
                     Left err -> do
                         _ <- restCall dis (CreateMessage (messageChannel m) (T.pack err))
-                        putStrLn err
+                        putStrLn "Parser/lexer error\n"
                     (Right (ExprSingle expr)) -> runInterpret (messageChannel m, dis) envs expr
-                    Right (VarSingle (UntypedVarAST x _) expr _) -> do
-                        _ <- restCall dis (CreateMessage (messageChannel m) (T.pack ("variable ``" ++ varName x ++ "`` was saved as:```Haskell\n" ++ prettyShow expr 0 ++ "```")))
-                        putStrLn ("variable '" ++ varName x ++ "' was saved as:\n" ++ prettyShow expr 0 ++ "\n")
+                    Right var@(VarSingle (UntypedVarAST x _) expr _) -> do
+                        _ <- restCall dis (CreateMessage (messageChannel m) (T.pack (creationMsg var)))
+                        putStrLn (creationMsg var)
                         loopDiscord dis (envs{ varEnv = Map.insert x (LazyValue expr) (varEnv envs), typeEnv = TypeEnv (Map.insert x (LazyT expr) (extractTypeEnv (typeEnv envs))) })
-                    Right (VarSingle (TypedVarAST x s _) expr _) -> do
-                        _ <- restCall dis (CreateMessage (messageChannel m) (T.pack ("variable ``" ++ varName x ++ "::" ++ prettyShow s 0 ++ "`` was saved as:```Haskell\n" ++ prettyShow expr 0 ++ "```")))
-                        putStrLn ("variable '" ++ varName x ++ "::" ++ prettyShow s 0 ++ "' was saved as:\n" ++ prettyShow expr 0 ++ "\n")
+                    Right var@(VarSingle (TypedVarAST x s _) expr _) -> do
+                        _ <- restCall dis (CreateMessage (messageChannel m) (T.pack (creationMsg var)))
+                        putStrLn (creationMsg var)
                         loopDiscord dis (envs{ varEnv = Map.insert x (LazyValue expr) (varEnv envs), typeEnv = TypeEnv (Map.insert x (LazyS expr s) (extractTypeEnv (typeEnv envs))) })
                     Right typ ->
                         case inferMakeType (typeSig envs) (typeUpsilon envs) (typeLsigma envs) typ of
@@ -94,6 +95,17 @@ loopDiscord dis envs = do
             loopDiscord dis envs
         _ -> loopDiscord dis envs
 
+compete :: [IO a] -> IO a
+compete actions = do
+    mvar <- newEmptyMVar
+    tids <- mapM (\action -> forkIO $ action >>= putMVar mvar) actions
+    result <- takeMVar mvar
+    mapM_ killThread tids
+    return result
+
+timeout :: Int -> IO a -> IO (Maybe a)
+timeout usec action = compete [fmap Just action, threadDelay usec >> return Nothing]
+
 singleTypeToIds :: SingleAST -> [TypeId]
 singleTypeToIds (TypeSingle _ cons _)       = Prelude.map extractId cons
 singleTypeToIds (TypePolySingle _ _ cons _) = Prelude.map extractId cons
@@ -103,7 +115,10 @@ extractId (SingleConsAST id _)   = id
 extractId (DoubleConsAST id _ _) = id
 
 creationMsg :: SingleAST -> String
-creationMsg _ = "to be done!"
+creationMsg (VarSingle (UntypedVarAST x _) expr _) = "variable ``" ++ varName x ++ "`` was saved as:```Haskell\n" ++ prettyShow expr 0 ++ "```"
+creationMsg (VarSingle (TypedVarAST x s _) expr _) = "variable ``" ++ varName x ++ "::" ++ prettyShow s 0 ++ "`` was saved as:```Haskell\n" ++ prettyShow expr 0 ++ "```"
+creationMsg (TypeSingle t cons _) = "type ``" ++ typeName t ++ "`` was saved with termconstructors:```Haskell\n" ++ ([prettyShow con 0 | con <- cons] >>= (++ "\n")) ++ "```"
+creationMsg (TypePolySingle t vars cons _) = "type ``" ++ typeName t ++ "<" ++ prettyShowList vars 0 ", " ++ ">" ++ "`` was saved with termconstructors:```Haskell\n" ++ ([prettyShow con 0 | con <- cons] >>= (++ "\n")) ++ "```"
 
 extractTypeEnv :: TypeEnv -> Map VarId Scheme
 extractTypeEnv (TypeEnv m) = m
@@ -112,17 +127,22 @@ fromBot :: Message -> Bool
 fromBot m = userIsBot (messageAuthor m)
 
 runInterpret :: Disc z -> Envs -> ExprAST -> IO ()
-runInterpret dis@(chan, dis') envs expr =
-    case inferRun (typeEnv envs) (typeSig envs) (typeUpsilon envs) (typeLsigma envs) expr of
-        (Just msg) -> do 
+runInterpret dis@(chan, dis') envs expr = do
+    let action = case inferRun (typeEnv envs) (typeSig envs) (typeUpsilon envs) (typeLsigma envs) expr of
+            (Just msg) -> return $ Left msg
+            Nothing    -> evalExpr expr Map.empty (varEnv envs) (varSig envs) dis
+
+    res <- timeout 1000 action
+    case res of
+        Nothing -> do
+            _ <- restCall dis' (CreateMessage chan (T.pack "time limit exceeded"))
+            putStrLn "time limit exceeded, killed thread\n\n"
+        Just (Left msg) -> do
             _ <- restCall dis' (CreateMessage chan (T.pack msg))
             putStrLn msg
-        Nothing    -> do
-            res <- evalExpr expr Map.empty (varEnv envs) (varSig envs) dis
-            case res of
-                (Left msg) -> do
-                    _ <- restCall dis' (CreateMessage chan (T.pack msg))
-                    putStrLn msg
-                (Right (v, _))  -> do
-                    _ <- restCall dis' (CreateMessage chan (T.pack ("``" ++ show v ++ "``")))
-                    putChar '\n'
+        Just (Right (v, _)) -> do
+            _ <- restCall dis' (CreateMessage chan (T.pack ("``" ++ show v ++ "``")))
+            putStrLn ("``" ++ show v ++ "``")
+
+
+    
