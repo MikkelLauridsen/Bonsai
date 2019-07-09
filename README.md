@@ -77,15 +77,15 @@ var res = case {
 
 var factorial = n => {
     case {
-        n <= 1 -> 1
-        ?      -> n * (factorial (n - 1))
+        | n <= 1 -> 1
+        | ?      -> n * (factorial (n - 1))
     }
 }
 
 var nested = let fun = n => {
     case {
-        n <= 1 -> 1
-        ?      -> n * (factorial (n - 1))
+        | n <= 1 -> 1
+        | ?      -> n * (factorial (n - 1))
     }
 } in (fun 10)
 ```
